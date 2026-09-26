@@ -391,12 +391,13 @@ function renderMockResult(short) {
       <div class="flex flex-col sm:flex-row sm:items-center gap-4 mb-6">
         <div class="flex-1">
           <h3 class="text-xl font-black text-slate-800">${n}문제를 뽑았어요</h3>
-          <p class="text-sm text-slate-500 mt-1">${short ? `범위 안의 문제가 ${n}개뿐이라 ${n}문제만 뽑았어요.` : '마음에 들지 않으면 다시 뽑을 수 있어요.'}</p>
+          ${short ? `<p class="text-sm text-amber-700 mt-1">범위 안의 문제가 ${n}개뿐이라 ${n}문제만 뽑았어요.</p>` : ''}
+          <p class="text-xs text-slate-400 mt-1 leading-relaxed">인쇄 창이 열리면 대상을 <b>PDF로 저장</b>으로 고르세요. 아이폰은 인쇄 미리보기에서 공유 버튼으로 저장할 수 있어요.</p>
         </div>
-        <div class="flex flex-wrap gap-2">
-          <button onclick="startMock()" class="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 text-sm font-bold">🔄 다시 뽑기</button>
-          <button onclick="printSheet('q')" class="px-4 py-2.5 rounded-xl bg-slate-800 text-white text-sm font-bold">📝 문제지 PDF 저장</button>
-          <button onclick="printSheet('a')" class="px-4 py-2.5 rounded-xl text-white text-sm font-bold" style="background:var(--mock)">💡 해설지 PDF 저장</button>
+        <div class="grid grid-cols-3 sm:flex gap-2 flex-shrink-0">
+          <button onclick="startMock()" class="px-2 sm:px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 text-[13px] font-bold whitespace-nowrap">다시 뽑기</button>
+          <button onclick="printSheet('q')" class="px-2 sm:px-3 py-1.5 rounded-lg border border-transparent bg-slate-800 text-white text-[13px] font-bold whitespace-nowrap">문제지 <span class="hidden sm:inline">PDF </span>저장</button>
+          <button onclick="printSheet('a')" class="px-2 sm:px-3 py-1.5 rounded-lg border border-transparent text-white text-[13px] font-bold whitespace-nowrap" style="background:var(--mock)">해설지 <span class="hidden sm:inline">PDF </span>저장</button>
         </div>
       </div>
       <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
@@ -408,7 +409,6 @@ function renderMockResult(short) {
             <img src="${qPath(q.bookId, q.code, q.number)}" alt="${i + 1}번 문제" loading="lazy" class="w-full h-28 object-contain object-top bg-white rounded" onerror="this.onerror=null;this.src=FALLBACK_Q">
           </figure>`).join('')}
       </div>
-      <p class="text-xs text-slate-400 mt-5 leading-relaxed">인쇄 창이 열리면 대상을 <b>PDF로 저장</b>으로 고르세요. 아이폰은 인쇄 미리보기에서 공유 버튼으로 저장할 수 있어요.</p>
     </div>`;
 }
 
