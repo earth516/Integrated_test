@@ -26,24 +26,25 @@
   }
   @media (min-width: 768px) { body.sidebar-collapsed #sidebar { margin-left: -18rem; } }
 
-  /* 🖨️ 인쇄(PDF 저장) */
+  /* 🖨️ 모의고사 PDF (인쇄용 시험지) */
+  .print-only { display: none; }
   @media print {
-    @page { margin: 15mm; }
-    html, body, main, #scroll-area { height: auto !important; overflow: visible !important; display: block !important; background: #fff !important; }
-    #sidebar, #sidebar-overlay, header, #timer, .no-print, .draw-bar { display: none !important; }
-    .q-card { break-inside: avoid; box-shadow: none !important; border: 1px solid #e2e8f0 !important; margin-bottom: 1.5rem !important; }
-    body.print-q .answer-section { display: none !important; }
-    body.print-a .question-image-section { display: none !important; }
-    body.print-a .answer-section { display: block !important; border: none !important; padding: 0 !important; background: transparent !important; }
+    @page { size: A4; margin: 14mm 12mm; }
+    html, body { height: auto !important; overflow: visible !important; display: block !important; background: #fff !important; }
+    body > *:not(main), main > header, #content > *:not(#print-sheet) { display: none !important; }
+    main, #scroll-area, #content { display: block !important; height: auto !important; overflow: visible !important; padding: 0 !important; margin: 0 !important; max-width: none !important; }
+    #print-sheet { display: block !important; }
+    body.print-q #print-a, body.print-a #print-q { display: none !important; }
+    .sheet-head { border-bottom: 2px solid #111; padding-bottom: 3mm; margin-bottom: 6mm; display: flex; justify-content: space-between; align-items: flex-end; }
+    .sheet-head h1 { font-size: 17pt; font-weight: 900; }
+    .sheet-head p { font-size: 9.5pt; color: #444; }
+    .sheet-item { break-inside: avoid; page-break-inside: avoid; margin-bottom: 8mm; }
+    .sheet-num { font-size: 12pt; font-weight: 900; margin-bottom: 2mm; }
+    .sheet-item img { display: block; max-width: 100%; max-height: 240mm; }
   }
 </style>
 </head>
 <body class="h-screen overflow-hidden flex bg-slate-50 text-slate-800">
-
-<div id="timer" class="hidden fixed top-4 right-4 md:top-6 md:right-6 z-50 bg-slate-900 text-white px-5 py-2.5 rounded-2xl shadow-xl flex items-center gap-2">
-  <span class="text-sm text-slate-400">남은 시간</span>
-  <span id="time-left" class="font-bold text-xl tabular-nums">30:00</span>
-</div>
 
 <div id="modal" class="hidden fixed inset-0 z-[60] bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
   <div class="bg-white rounded-3xl shadow-2xl max-w-sm w-full p-8 text-center fade-in">
@@ -148,7 +149,6 @@ const CURRICULUM = [
 
 /* ④ 기타 설정 */
 const PER_PAGE = 1;            // 한 페이지 문제 수
-const MIN_PER_QUESTION = 1.5;  // 모의고사 문제당 제한 시간(분)
 
 /* ---------------- 내부 데이터 ---------------- */
 const UNITS = [];
@@ -170,7 +170,8 @@ const FALLBACK_A = fallbackImg('해설 이미지를 찾을 수 없어요');
 let currentCat = Object.keys(CATEGORIES).find(c => booksIn(c).length);  // 'practice' | 'past' | 'mock'
 let currentUnit = null;
 let list = [], page = 1, isRandom = false;
-let timerId = null, timeLeft = 0, isLocked = false;
+let isLocked = false;
+let mockPicked = [];
 
 const $ = id => document.getElementById(id);
 const content = $('content');
@@ -205,20 +206,6 @@ function showModal(msg, locked = false) {
   $('modal').classList.remove('hidden');
 }
 function closeModal(force = false) { if (!isLocked || force) { isLocked = false; $('modal').classList.add('hidden'); } }
-
-/* ---------------- 타이머 ---------------- */
-const fmt = s => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
-function stopTimer() { clearInterval(timerId); timerId = null; $('timer').classList.add('hidden'); }
-function startTimer(sec) {
-  stopTimer(); timeLeft = sec;
-  const el = $('time-left'); el.innerText = fmt(timeLeft); el.classList.remove('text-red-400');
-  $('timer').classList.remove('hidden');
-  timerId = setInterval(() => {
-    timeLeft--; el.innerText = fmt(timeLeft);
-    if (timeLeft <= 300) el.classList.add('text-red-400');
-    if (timeLeft <= 0) { stopTimer(); showModal(`제한 시간 ${Math.round(sec / 60)}분이 끝났어요. 수고했어요!`); }
-  }, 1000);
-}
 
 /* ---------------- 사이드바 ---------------- */
 function renderSidebar() {
@@ -262,7 +249,7 @@ window.changeCategory = function (cat) {
 };
 
 function showWelcome() {
-  currentUnit = null; stopTimer(); renderSidebar();
+  currentUnit = null; renderSidebar();
   const cat = CATEGORIES[currentCat], total = catTotal(currentCat);
   setHeader(cat.title, '왼쪽 메뉴에서 소단원을 누르면 문제가 나와요.');
   content.innerHTML = `
@@ -276,7 +263,7 @@ function showWelcome() {
 
 /* ---------------- 단원 학습 ---------------- */
 window.selectUnit = function (code) {
-  stopTimer(); currentUnit = code;
+  currentUnit = code;
   const u = unitByCode[code];
   list = catQuestions(currentCat, code); page = 1; isRandom = false;
   setHeader(u.title, `${CATEGORIES[currentCat].title} · ${[u.big, u.group].filter(Boolean).join(' / ')} · ${list.length}문제`);
@@ -320,8 +307,8 @@ function renderPage() {
 
 /* ---------------- 모의고사 ---------------- */
 function showMockIntro() {
-  currentCat = 'mock'; currentUnit = null; stopTimer(); renderSidebar(); closeSidebarMobile();
-  setHeader('모의고사 만들기', '교재와 범위를 고르면 무작위로 출제돼요.');
+  currentCat = 'mock'; currentUnit = null; mockPicked = []; renderSidebar(); closeSidebarMobile();
+  setHeader('모의고사 만들기', '범위를 고르면 무작위로 뽑아서 문제지·해설지 PDF로 저장해요.');
 
   const catsHtml = Object.entries(CATEGORIES).filter(([k]) => booksIn(k).length).map(([k, c]) => `
     <label class="flex items-center gap-3 bg-white rounded-xl border border-slate-200 px-4 py-3 cursor-pointer">
@@ -358,17 +345,14 @@ function showMockIntro() {
       <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
         <label class="flex items-center gap-2 text-sm font-bold text-slate-700">문제 수
           <select id="mock-count" class="p-2 border border-slate-200 rounded-lg bg-white">
-            <option value="10">10문제 (15분)</option><option value="20" selected>20문제 (30분)</option><option value="30">30문제 (45분)</option>
+            <option value="10">10문제</option><option value="20" selected>20문제</option><option value="25">25문제</option><option value="30">30문제</option>
           </select>
         </label>
-        <button onclick="startMock()" class="sm:ml-auto px-7 py-3 rounded-xl text-white font-bold shadow-sm" style="background:var(--mock)">모의고사 시작</button>
+        <button onclick="startMock()" class="sm:ml-auto px-7 py-3 rounded-xl text-white font-bold shadow-sm" style="background:var(--mock)">문제 뽑기</button>
       </div>
     </div>
-    <div id="mock-actions" class="no-print hidden justify-center gap-3 mt-6 flex-wrap">
-      <button onclick="printPDF('q')" class="px-5 py-2.5 bg-slate-800 text-white text-sm font-bold rounded-xl">📝 문제 PDF 저장</button>
-      <button onclick="printPDF('a')" class="px-5 py-2.5 text-white text-sm font-bold rounded-xl" style="background:var(--mock)">💡 해설 PDF 저장</button>
-    </div>
-    <div id="mock-cards" class="space-y-8 mt-8"></div>`;
+    <div id="mock-result"></div>
+    <div id="print-sheet" class="print-only"></div>`;
 }
 
 window.toggleBig = function (bi, on) {
@@ -391,15 +375,76 @@ window.startMock = function () {
   cats.forEach(cat => units.forEach(code => pool.push(...catQuestions(cat, code))));
   if (!pool.length) return showModal('고른 범위에 등록된 문제가 없어요.');
 
-  const picked = shuffle(pool).slice(0, want);
-  const sec = Math.round(picked.length * MIN_PER_QUESTION) * 60;
-  setHeader('모의고사', picked.length < want
-    ? `범위 안의 문제가 ${picked.length}개뿐이라 ${picked.length}문제만 출제했어요. 제한 시간 ${sec / 60}분.`
-    : `${picked.length}문제 · 제한 시간 ${sec / 60}분. 실전처럼 풀어보세요.`);
-  const actions = $('mock-actions'); actions.classList.remove('hidden'); actions.classList.add('flex');
-  renderCards(picked, $('mock-cards'), true);
-  startTimer(sec);
-  setTimeout(() => $('mock-cards').scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
+  // 무작위로 뽑은 뒤, 시험지처럼 단원 순서대로 정렬
+  const unitOrder = Object.fromEntries(UNITS.map((u, i) => [u.code, i]));
+  mockPicked = shuffle(pool).slice(0, want).sort((a, b) => unitOrder[a.code] - unitOrder[b.code]);
+  renderMockResult(pool.length < want);
+  renderPrintSheet();
+  setTimeout(() => $('mock-result').scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
+};
+
+function renderMockResult(short) {
+  const n = mockPicked.length;
+  $('mock-result').innerHTML = `
+    <div class="no-print mt-6 bg-white rounded-3xl border border-slate-200 p-5 md:p-8 fade-in">
+      <div class="flex flex-col sm:flex-row sm:items-center gap-4 mb-6">
+        <div class="flex-1">
+          <h3 class="text-xl font-black text-slate-800">${n}문제를 뽑았어요</h3>
+          <p class="text-sm text-slate-500 mt-1">${short ? `범위 안의 문제가 ${n}개뿐이라 ${n}문제만 뽑았어요.` : '마음에 들지 않으면 다시 뽑을 수 있어요.'}</p>
+        </div>
+        <div class="flex flex-wrap gap-2">
+          <button onclick="startMock()" class="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 text-sm font-bold">🔄 다시 뽑기</button>
+          <button onclick="printSheet('q')" class="px-4 py-2.5 rounded-xl bg-slate-800 text-white text-sm font-bold">📝 문제지 PDF 저장</button>
+          <button onclick="printSheet('a')" class="px-4 py-2.5 rounded-xl text-white text-sm font-bold" style="background:var(--mock)">💡 해설지 PDF 저장</button>
+        </div>
+      </div>
+      <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+        ${mockPicked.map((q, i) => `
+          <figure class="rounded-xl border border-slate-200 bg-slate-50 p-2">
+            <figcaption class="flex justify-between items-center mb-1.5 text-xs">
+              <b class="text-slate-800 flex-shrink-0">${i + 1}번</b><span class="text-slate-400 truncate ml-2 min-w-0">${unitByCode[q.code].title}</span>
+            </figcaption>
+            <img src="${qPath(q.bookId, q.code, q.number)}" alt="${i + 1}번 문제" loading="lazy" class="w-full h-28 object-contain object-top bg-white rounded" onerror="this.onerror=null;this.src=FALLBACK_Q">
+          </figure>`).join('')}
+      </div>
+      <p class="text-xs text-slate-400 mt-5 leading-relaxed">인쇄 창이 열리면 대상을 <b>PDF로 저장</b>으로 고르세요. 아이폰은 인쇄 미리보기에서 공유 버튼으로 저장할 수 있어요.</p>
+    </div>`;
+}
+
+function renderPrintSheet() {
+  const n = mockPicked.length;
+  const today = new Date().toLocaleDateString('ko-KR');
+  const head = (title, right) => `<div class="sheet-head"><div><h1>${title}</h1><p>SJ 통합과학 문제은행 · ${n}문항 · ${today}</p></div><p>${right}</p></div>`;
+  $('print-sheet').innerHTML = `
+    <div id="print-q">
+      ${head('통합과학 모의고사', '이름 ______________')}
+      ${mockPicked.map((q, i) => `<section class="sheet-item"><div class="sheet-num">${i + 1}.</div><img src="${qPath(q.bookId, q.code, q.number)}" alt="" onerror="this.onerror=null;this.src=FALLBACK_Q"></section>`).join('')}
+    </div>
+    <div id="print-a">
+      ${head('통합과학 모의고사 해설', '')}
+      ${mockPicked.map((q, i) => `<section class="sheet-item"><div class="sheet-num">${i + 1}번 해설</div><img data-src="${aPath(q.bookId, q.code, q.number)}" alt=""></section>`).join('')}
+    </div>`;
+}
+
+/* 인쇄 창 열기 (이미지가 모두 로드된 뒤) */
+const waitImg = img => (img.complete && img.naturalWidth) ? Promise.resolve()
+  : new Promise(r => { img.addEventListener('load', r, { once: true }); img.addEventListener('error', r, { once: true }); });
+window.printSheet = async function (type) {
+  const sheet = $(`print-${type}`);
+  if (!sheet) return;
+  const imgs = [...sheet.querySelectorAll('img')];
+  imgs.forEach(img => { if (img.dataset.src && !img.getAttribute('src')) { img.onerror = () => { img.onerror = null; img.src = FALLBACK_A; }; img.src = img.dataset.src; } });
+  showModal('PDF를 준비하는 중이에요…', true);
+  await Promise.all(imgs.map(waitImg));
+  closeModal(true);
+
+  document.body.classList.remove('print-q', 'print-a');
+  document.body.classList.add(`print-${type}`);
+  const oldTitle = document.title;   // PDF 파일 이름이 됨
+  document.title = `통합과학 모의고사_${type === 'q' ? '문제지' : '해설지'}_${new Date().toISOString().slice(0, 10)}`;
+  const cleanup = () => { document.body.classList.remove('print-q', 'print-a'); document.title = oldTitle; window.removeEventListener('afterprint', cleanup); };
+  window.addEventListener('afterprint', cleanup);
+  window.print();
 };
 
 /* ---------------- 문제 카드 ---------------- */
@@ -463,21 +508,6 @@ window.toggleAnswer = function (id) {
   if (opening) box.classList.add('fade-in');
   btn.innerText = opening ? '해설 닫기' : '정답 및 해설 보기';
   btn.style.background = opening ? '#475569' : btn.dataset.color;
-};
-
-/* ---------------- PDF 저장 ---------------- */
-window.printPDF = async function (type) {
-  document.body.classList.add(`print-${type}`);
-  const opened = [];
-  if (type === 'a') {
-    document.querySelectorAll('.answer-section.hidden').forEach(el => { el.classList.remove('hidden'); opened.push(el); });
-    const imgs = [...document.querySelectorAll('.answer-section img')];
-    imgs.forEach(img => img.loading = 'eager');
-    await Promise.all(imgs.map(img => img.complete ? null : new Promise(r => { img.addEventListener('load', r, { once: true }); img.addEventListener('error', r, { once: true }); })));
-  }
-  window.print();
-  document.body.classList.remove(`print-${type}`);
-  opened.forEach(el => el.classList.add('hidden'));
 };
 
 /* ---------------- 필기 (페이지를 넘겨도 유지) ---------------- */
