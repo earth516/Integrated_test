@@ -3,7 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>통합과학 문제은행</title>
+<title>SJ 통합과학 문제은행</title>
+<link rel="icon" href="logo.png">
 <script src="https://cdn.tailwindcss.com"></script>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -54,7 +55,9 @@
 <!-- 사이드바 -->
 <aside id="sidebar" class="w-72 flex-shrink-0 h-full bg-white border-r border-slate-200 z-40 flex flex-col">
   <div class="px-5 pt-5 pb-3 flex items-center justify-between">
-    <h1 class="text-lg font-black tracking-tight text-slate-800">통합과학 문제은행</h1>
+    <h1 class="flex items-center gap-2 text-lg font-black tracking-tight text-slate-800">
+      <img src="logo.png" alt="" class="w-8 h-8 flex-shrink-0" onerror="this.remove()">SJ 통합과학 문제은행
+    </h1>
     <button onclick="toggleSidebar()" class="md:hidden p-1.5 text-slate-400 hover:text-slate-700 rounded-lg" aria-label="메뉴 닫기">✕</button>
   </div>
   <!-- 큰 카테고리: 문제풀기 / 기출 문제 / 모의고사 -->
@@ -77,7 +80,7 @@
       <p id="page-desc" class="text-xs md:text-sm text-slate-500 truncate"></p>
     </div>
   </header>
-  <div id="scroll-area" class="flex-1 overflow-y-auto p-4 md:p-10">
+  <div id="scroll-area" class="flex-1 overflow-y-auto p-3 md:p-10">
     <div id="content" class="max-w-4xl mx-auto pb-20"></div>
   </div>
 </main>
@@ -144,7 +147,7 @@ const CURRICULUM = [
 ];
 
 /* ④ 기타 설정 */
-const PER_PAGE = 5;            // 한 페이지 문제 수
+const PER_PAGE = 1;            // 한 페이지 문제 수
 const MIN_PER_QUESTION = 1.5;  // 모의고사 문제당 제한 시간(분)
 
 /* ---------------- 내부 데이터 ---------------- */
@@ -296,18 +299,22 @@ function renderPage() {
   const pages = Math.max(1, Math.ceil(list.length / PER_PAGE));
   const seg = (on, color) => on ? `bg-white shadow-sm font-bold" style="color:${color}` : 'text-slate-500 hover:text-slate-700';
   content.innerHTML = `
-    <div class="no-print flex flex-col sm:flex-row justify-between items-center gap-3 bg-white p-3 rounded-2xl border border-slate-200 mb-6">
-      <div class="flex bg-slate-100 p-1 rounded-xl w-full sm:w-auto">
-        <button onclick="setSort('seq')" class="flex-1 sm:w-24 px-4 py-2 text-sm rounded-lg ${seg(!isRandom, 'var(--accent)')}">순서대로</button>
-        <button onclick="setSort('random')" class="flex-1 sm:w-24 px-4 py-2 text-sm rounded-lg ${seg(isRandom, 'var(--mock)')}">랜덤으로</button>
+    <div class="no-print flex justify-between items-center gap-2 bg-white p-2 md:p-3 rounded-2xl border border-slate-200 mb-4 md:mb-6">
+      <div class="flex bg-slate-100 p-1 rounded-xl">
+        <button onclick="setSort('seq')" class="px-3 md:px-4 py-1.5 md:py-2 text-xs md:text-sm rounded-lg whitespace-nowrap ${seg(!isRandom, 'var(--accent)')}">순서대로</button>
+        <button onclick="setSort('random')" class="px-3 md:px-4 py-1.5 md:py-2 text-xs md:text-sm rounded-lg whitespace-nowrap ${seg(isRandom, 'var(--mock)')}">랜덤으로</button>
       </div>
-      <div class="flex items-center gap-4">
+      <div class="flex items-center gap-2 md:gap-4">
         <button onclick="changePage(-1)" class="p-2 rounded-lg bg-slate-50 hover:bg-slate-100 disabled:opacity-40" ${page <= 1 ? 'disabled' : ''} aria-label="이전 페이지">◀</button>
         <span class="text-sm font-bold tabular-nums">${page} <span class="text-slate-400 font-normal">/ ${pages}</span></span>
         <button onclick="changePage(1)" class="p-2 rounded-lg bg-slate-50 hover:bg-slate-100 disabled:opacity-40" ${page >= pages ? 'disabled' : ''} aria-label="다음 페이지">▶</button>
       </div>
     </div>
-    <div id="cards" class="space-y-8"></div>`;
+    <div id="cards" class="space-y-8"></div>
+    ${list.length ? `<div class="no-print flex gap-3 mt-4">
+      <button onclick="changePage(-1)" class="flex-1 py-3 rounded-xl bg-white border border-slate-200 font-bold text-slate-600 disabled:opacity-40" ${page <= 1 ? 'disabled' : ''}>◀ 이전 문제</button>
+      <button onclick="changePage(1)" class="flex-1 py-3 rounded-xl text-white font-bold disabled:opacity-40" style="background:var(--accent)" ${page >= pages ? 'disabled' : ''}>다음 문제 ▶</button>
+    </div>` : ''}`;
   renderCards(list.slice((page - 1) * PER_PAGE, page * PER_PAGE), $('cards'), false, (page - 1) * PER_PAGE);
 }
 
@@ -404,28 +411,27 @@ function renderCards(questions, target, mock, offset = 0) {
   target.innerHTML = questions.map((q, i) => {
     const u = unitByCode[q.code], book = bookById[q.bookId], cat = CATEGORIES[book.category];
     const label = `${offset + i + 1}번`;
-    // 출처 배지: 어느 교재 몇 번인지 (틀린 문제 찾아볼 때 필요)
-    const badges = `<span class="px-2 py-1 rounded text-[11px] font-bold" style="background:${cat.soft};color:${cat.color}">${book.short} ${q.number}번</span>`
-      + (mock ? `<span class="px-2 py-1 rounded text-[11px] font-bold bg-slate-100 text-slate-600">${u.title}</span>` : '');
+    // 모의고사에서만 어느 단원 문제인지 표시
+    const badges = mock ? `<span class="px-2 py-1 rounded text-[11px] font-bold bg-slate-100 text-slate-600">${u.title}</span>` : '';
     const pen = (mode, color, cls, name) =>
       `<button onclick="setTool('${q.id}','${mode}','${color}',this)" data-tool="${q.id}" aria-label="${name}" class="${cls} ${color === '#111827' ? 'tool-active' : ''}"></button>`;
     return `
     <article class="q-card bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden fade-in">
-      <div class="p-5 md:p-7">
+      <div class="p-4 md:p-7">
         <div class="flex items-center justify-between gap-3 mb-4">
           <h3 class="text-xl font-black text-slate-800">${label}</h3>
           <div class="flex gap-1.5 flex-wrap justify-end">${badges}</div>
         </div>
 
-        <div class="draw-bar flex justify-end items-center gap-2 mb-3">
-          <div id="tools-${q.id}" class="hidden items-center gap-2.5 bg-slate-100 px-3 py-1.5 rounded-lg">
-            ${pen('pen', '#111827', 'w-4 h-4 rounded-full bg-gray-900', '검정 펜')}
-            ${pen('pen', '#ef4444', 'w-4 h-4 rounded-full bg-red-500', '빨강 펜')}
-            ${pen('pen', '#3b82f6', 'w-4 h-4 rounded-full bg-blue-500', '파랑 펜')}
-            <button onclick="setTool('${q.id}','eraser','',this)" data-tool="${q.id}" class="text-xs font-bold text-slate-600 px-2 py-0.5 rounded">지우개</button>
-            <button onclick="clearInk('${q.id}')" class="text-xs font-bold text-red-500 px-2 py-0.5 rounded hover:bg-red-50">모두 지우기</button>
+        <div class="draw-bar flex flex-nowrap justify-end items-center gap-1.5 mb-3 whitespace-nowrap text-[11px]">
+          <div id="tools-${q.id}" class="hidden flex-nowrap items-center gap-2 bg-slate-100 px-2 py-1 rounded-lg">
+            ${pen('pen', '#111827', 'w-3.5 h-3.5 flex-shrink-0 rounded-full bg-gray-900', '검정 펜')}
+            ${pen('pen', '#ef4444', 'w-3.5 h-3.5 flex-shrink-0 rounded-full bg-red-500', '빨강 펜')}
+            ${pen('pen', '#3b82f6', 'w-3.5 h-3.5 flex-shrink-0 rounded-full bg-blue-500', '파랑 펜')}
+            <button onclick="setTool('${q.id}','eraser','',this)" data-tool="${q.id}" class="font-bold text-slate-600 px-1.5 py-0.5 rounded">지우개</button>
+            <button onclick="clearInk('${q.id}')" class="font-bold text-red-500 px-1.5 py-0.5 rounded hover:bg-red-50">모두 지우기</button>
           </div>
-          <button onclick="toggleDraw('${q.id}')" id="drawbtn-${q.id}" class="px-3 py-1.5 bg-slate-100 text-slate-700 rounded-lg text-xs font-bold border border-slate-200">✏️ 필기 켜기</button>
+          <button onclick="toggleDraw('${q.id}')" id="drawbtn-${q.id}" class="flex-shrink-0 px-2.5 py-1 bg-slate-100 text-slate-700 rounded-lg font-bold border border-slate-200">✏️ 필기 켜기</button>
         </div>
 
         <div class="question-image-section border border-slate-100 rounded-xl p-3 bg-slate-50 flex justify-center">
@@ -513,7 +519,7 @@ window.toggleDraw = function (id) {
   const on = cv.style.pointerEvents !== 'auto';
   cv.style.pointerEvents = on ? 'auto' : 'none';
   tools.classList.toggle('hidden', !on); tools.classList.toggle('flex', on);
-  btn.innerText = on ? '❌ 필기 끄기' : '✏️ 필기 켜기';
+  btn.innerText = on ? '필기 끄기' : '✏️ 필기 켜기';
   btn.style.background = on ? 'var(--accent-soft)' : ''; btn.style.color = on ? 'var(--accent)' : '';
 };
 window.setTool = function (id, mode, color, el) {
@@ -548,6 +554,11 @@ async function init() {
       : '문제 목록(manifest.json)을 찾을 수 없어요.\n문제목록 만들기.bat을 실행한 뒤 manifest.json도 함께 올려 주세요.');
   }
 }
+document.addEventListener('keydown', e => {
+  if (isMock() || !currentUnit || !list.length || e.target.closest('input, select, textarea')) return;
+  if (e.key === 'ArrowLeft') changePage(-1);
+  if (e.key === 'ArrowRight') changePage(1);
+});
 init();
 </script>
 </body>
