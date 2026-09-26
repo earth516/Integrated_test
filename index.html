@@ -1,1 +1,554 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>통합과학 문제은행</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&display=swap" rel="stylesheet">
+<style>
+  :root { --accent: #0f766e; --accent-soft: #e6f4f1; --mock: #b45309; --mock-soft: #fdf3e7; }
+  body { font-family: 'Noto Sans KR', system-ui, -apple-system, sans-serif; }
+  .fade-in { animation: fadeIn .25s ease-out; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  @media (prefers-reduced-motion: reduce) { .fade-in { animation: none; } }
+  ::-webkit-scrollbar { width: 8px; } ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+  button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .tool-active { outline: 2px solid #475569; outline-offset: 2px; }
 
+  #sidebar { transition: transform .25s ease, margin .25s ease; }
+  #sidebar-overlay { display: none; }
+  @media (max-width: 767px) {
+    #sidebar { position: fixed; top: 0; bottom: 0; left: 0; transform: translateX(-100%); }
+    body.sidebar-open #sidebar { transform: translateX(0); }
+    body.sidebar-open #sidebar-overlay { display: block; }
+  }
+  @media (min-width: 768px) { body.sidebar-collapsed #sidebar { margin-left: -18rem; } }
+
+  /* 🖨️ 인쇄(PDF 저장) */
+  @media print {
+    @page { margin: 15mm; }
+    html, body, main, #scroll-area { height: auto !important; overflow: visible !important; display: block !important; background: #fff !important; }
+    #sidebar, #sidebar-overlay, header, #timer, .no-print, .draw-bar { display: none !important; }
+    .q-card { break-inside: avoid; box-shadow: none !important; border: 1px solid #e2e8f0 !important; margin-bottom: 1.5rem !important; }
+    body.print-q .answer-section { display: none !important; }
+    body.print-a .question-image-section { display: none !important; }
+    body.print-a .answer-section { display: block !important; border: none !important; padding: 0 !important; background: transparent !important; }
+  }
+</style>
+</head>
+<body class="h-screen overflow-hidden flex bg-slate-50 text-slate-800">
+
+<div id="timer" class="hidden fixed top-4 right-4 md:top-6 md:right-6 z-50 bg-slate-900 text-white px-5 py-2.5 rounded-2xl shadow-xl flex items-center gap-2">
+  <span class="text-sm text-slate-400">남은 시간</span>
+  <span id="time-left" class="font-bold text-xl tabular-nums">30:00</span>
+</div>
+
+<div id="modal" class="hidden fixed inset-0 z-[60] bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
+  <div class="bg-white rounded-3xl shadow-2xl max-w-sm w-full p-8 text-center fade-in">
+    <p id="modal-msg" class="text-slate-700 font-medium leading-relaxed whitespace-pre-line"></p>
+    <button id="modal-btn" onclick="closeModal()" class="mt-6 w-full py-3 rounded-xl text-white font-bold" style="background:var(--accent)">확인</button>
+  </div>
+</div>
+
+<!-- 사이드바 -->
+<aside id="sidebar" class="w-72 flex-shrink-0 h-full bg-white border-r border-slate-200 z-40 flex flex-col">
+  <div class="px-5 pt-5 pb-3 flex items-center justify-between">
+    <h1 class="text-lg font-black tracking-tight text-slate-800">통합과학 문제은행</h1>
+    <button onclick="toggleSidebar()" class="md:hidden p-1.5 text-slate-400 hover:text-slate-700 rounded-lg" aria-label="메뉴 닫기">✕</button>
+  </div>
+  <!-- 큰 카테고리: 문제풀기 / 기출 문제 / 모의고사 -->
+  <div class="px-3 pb-3 border-b border-slate-100">
+    <div id="cat-tabs" class="grid gap-1 bg-slate-100 p-1 rounded-xl"></div>
+  </div>
+  <div class="flex-1 overflow-y-auto px-3 py-4">
+    <nav id="unit-nav"></nav>
+  </div>
+</aside>
+<div id="sidebar-overlay" onclick="toggleSidebar()" class="fixed inset-0 bg-slate-900/30 z-30"></div>
+
+<main class="flex-1 min-w-0 flex flex-col h-full">
+  <header class="bg-white/90 backdrop-blur border-b border-slate-200 px-4 md:px-6 py-3.5 flex items-center gap-3 flex-shrink-0">
+    <button onclick="toggleSidebar()" class="p-2 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 flex-shrink-0" aria-label="메뉴 열기/닫기">
+      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h10"/></svg>
+    </button>
+    <div class="min-w-0">
+      <h2 id="page-title" class="text-lg md:text-xl font-bold truncate"></h2>
+      <p id="page-desc" class="text-xs md:text-sm text-slate-500 truncate"></p>
+    </div>
+  </header>
+  <div id="scroll-area" class="flex-1 overflow-y-auto p-4 md:p-10">
+    <div id="content" class="max-w-4xl mx-auto pb-20"></div>
+  </div>
+</main>
+
+<script>
+/* ============================================================
+   ① 큰 카테고리
+   ============================================================ */
+const CATEGORIES = {
+  practice: { title: '문제풀기',  icon: '📖', color: '#0f766e', soft: '#e6f4f1' },
+  past:     { title: '기출 문제', icon: '🗂️', color: '#1d4ed8', soft: '#e8eefc' },
+};
+
+/* ============================================================
+   ② 교재 설정
+   - category: 'practice'(문제풀기) 또는 'past'(기출 문제)
+   - dir     : 교재 폴더. 그 안에 소단원 폴더(1-1-1 ~ 3-2)를 만들고
+               문제·해설 이미지를 원래 번호 그대로 넣으면 돼요.
+               예) practice/book1/1-1-2/17번_문제.png, 17번_해설.png
+   - short   : 문제 카드에 표시되는 교재 이름
+   - 같은 카테고리의 교재들은 소단원별로 합쳐져서 나와요.
+   ============================================================ */
+const BOOKS = [
+  { id: 'p1', category: 'practice', dir: 'practice/book1', short: '문제집A' },
+  { id: 'p2', category: 'practice', dir: 'practice/book2', short: '문제집B' },
+  { id: 'x1', category: 'past',     dir: 'past/book1',     short: '기출A' },
+  { id: 'x2', category: 'past',     dir: 'past/book2',     short: '기출B' },
+];
+
+/* ============================================================
+   ③ 단원 구성
+   ============================================================ */
+const CURRICULUM = [
+  { title: 'I. 변화와 다양성', groups: [
+    { title: '환경 변화와 생물다양성', units: [
+      { code: '1-1-1', title: '지질 시대의 환경과 생물 변화' },
+      { code: '1-1-2', title: '생물의 진화' },
+      { code: '1-1-3', title: '생물다양성과 보전' },
+    ]},
+    { title: '우리 주변의 변화', units: [
+      { code: '1-2-1', title: '산화와 환원' },
+      { code: '1-2-2', title: '산과 염기' },
+      { code: '1-2-3', title: '에너지의 흡수와 방출' },
+    ]},
+  ]},
+  { title: 'II. 환경과 에너지', groups: [
+    { title: '생태계와 환경', units: [
+      { code: '2-1-1', title: '생물과 환경' },
+      { code: '2-1-2', title: '생태계 평형' },
+      { code: '2-1-3', title: '지구 환경의 변화' },
+    ]},
+    { title: '에너지', units: [
+      { code: '2-2-1', title: '태양 에너지의 생성과 전환' },
+      { code: '2-2-2', title: '전기 에너지의 생산' },
+      { code: '2-2-3', title: '에너지 효율과 지구 환경' },
+    ]},
+  ]},
+  { title: 'III. 과학과 미래 사회', groups: [
+    { title: null, units: [
+      { code: '3-1', title: '과학의 유용성과 빅데이터의 활용' },
+      { code: '3-2', title: '과학기술의 발전과 윤리' },
+    ]},
+  ]},
+];
+
+/* ④ 기타 설정 */
+const PER_PAGE = 5;            // 한 페이지 문제 수
+const MIN_PER_QUESTION = 1.5;  // 모의고사 문제당 제한 시간(분)
+
+/* ---------------- 내부 데이터 ---------------- */
+const UNITS = [];
+CURRICULUM.forEach((big, bi) => big.groups.forEach(g => g.units.forEach(u => UNITS.push({ ...u, bi, big: big.title, group: g.title }))));
+const unitByCode = Object.fromEntries(UNITS.map(u => [u.code, u]));
+const bookById = Object.fromEntries(BOOKS.map(b => [b.id, b]));
+const booksIn = cat => BOOKS.filter(b => b.category === cat);
+const qPath = (bookId, code, n) => `${bookById[bookId].dir}/${code}/${n}번_문제.png`;
+const aPath = (bookId, code, n) => `${bookById[bookId].dir}/${code}/${n}번_해설.png`;
+
+const db = {};   // db[bookId][소단원코드] = [문제 번호들]  (manifest.json에서 읽어옴)
+BOOKS.forEach(b => { db[b.id] = {}; });
+
+const fallbackImg = text => 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(
+  `<svg xmlns="http://www.w3.org/2000/svg" width="800" height="260"><rect width="100%" height="100%" fill="#f1f5f9"/><text x="50%" y="50%" text-anchor="middle" dominant-baseline="middle" font-family="sans-serif" font-size="22" fill="#94a3b8">${text}</text></svg>`);
+const FALLBACK_Q = fallbackImg('문제 이미지를 찾을 수 없어요');
+const FALLBACK_A = fallbackImg('해설 이미지를 찾을 수 없어요');
+
+let currentCat = Object.keys(CATEGORIES).find(c => booksIn(c).length);  // 'practice' | 'past' | 'mock'
+let currentUnit = null;
+let list = [], page = 1, isRandom = false;
+let timerId = null, timeLeft = 0, isLocked = false;
+
+const $ = id => document.getElementById(id);
+const content = $('content');
+const isMock = () => currentCat === 'mock';
+
+function getQuestions(bookId, code) {
+  return (db[bookId][code] || []).map(n => ({ id: `${bookId}__${n}`, bookId, code, number: n }));
+}
+const bookOrder = Object.fromEntries(BOOKS.map((b, i) => [b.id, i]));
+const byBookThenNumber = (a, b) => (bookOrder[a.bookId] - bookOrder[b.bookId]) || (a.number - b.number);
+// 카테고리 안 모든 교재의 해당 소단원 문제를 합쳐서
+const catQuestions = (cat, code) => booksIn(cat).flatMap(b => getQuestions(b.id, code));
+const countOf = (cat, code) => catQuestions(cat, code).length;
+const catTotal = cat => UNITS.reduce((s, u) => s + countOf(cat, u.code), 0);
+const shuffle = arr => { for (let i = arr.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]]; } return arr; };
+
+/* ---------------- 공통 UI ---------------- */
+function toggleSidebar() {
+  if (window.innerWidth < 768) document.body.classList.toggle('sidebar-open');
+  else document.body.classList.toggle('sidebar-collapsed');
+}
+const closeSidebarMobile = () => document.body.classList.remove('sidebar-open');
+function setHeader(title, desc) { $('page-title').innerText = title; $('page-desc').innerText = desc; }
+function setAccent(cat) {
+  const c = CATEGORIES[cat]; if (!c) return;
+  document.documentElement.style.setProperty('--accent', c.color);
+  document.documentElement.style.setProperty('--accent-soft', c.soft);
+}
+function showModal(msg, locked = false) {
+  isLocked = locked; $('modal-msg').innerText = msg;
+  $('modal-btn').classList.toggle('hidden', locked);
+  $('modal').classList.remove('hidden');
+}
+function closeModal(force = false) { if (!isLocked || force) { isLocked = false; $('modal').classList.add('hidden'); } }
+
+/* ---------------- 타이머 ---------------- */
+const fmt = s => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+function stopTimer() { clearInterval(timerId); timerId = null; $('timer').classList.add('hidden'); }
+function startTimer(sec) {
+  stopTimer(); timeLeft = sec;
+  const el = $('time-left'); el.innerText = fmt(timeLeft); el.classList.remove('text-red-400');
+  $('timer').classList.remove('hidden');
+  timerId = setInterval(() => {
+    timeLeft--; el.innerText = fmt(timeLeft);
+    if (timeLeft <= 300) el.classList.add('text-red-400');
+    if (timeLeft <= 0) { stopTimer(); showModal(`제한 시간 ${Math.round(sec / 60)}분이 끝났어요. 수고했어요!`); }
+  }, 1000);
+}
+
+/* ---------------- 사이드바 ---------------- */
+function renderSidebar() {
+  // 카테고리 탭
+  const tabs = Object.entries(CATEGORIES).filter(([k]) => booksIn(k).length)
+    .map(([k, c]) => ({ k, label: c.title, icon: c.icon, color: c.color }))
+    .concat({ k: 'mock', label: '모의고사', icon: '📝', color: 'var(--mock)' });
+  const catTabs = $('cat-tabs');
+  catTabs.style.gridTemplateColumns = `repeat(${tabs.length}, minmax(0, 1fr))`;
+  catTabs.innerHTML = tabs.map(t => {
+    const on = currentCat === t.k;
+    return `<button onclick="changeCategory('${t.k}')" class="py-2 rounded-lg text-xs font-bold leading-tight transition-colors ${on ? 'bg-white shadow-sm' : 'text-slate-500 hover:text-slate-700'}" ${on ? `style="color:${t.color}"` : ''}>
+      <span class="block text-base mb-0.5">${t.icon}</span>${t.label}</button>`;
+  }).join('');
+
+  // 단원 목록
+  if (isMock()) {
+    $('unit-nav').innerHTML = `<p class="px-2 text-sm text-slate-500 leading-relaxed">오른쪽 화면에서 출제 범위를 골라 모의고사를 만들어 보세요.</p>`;
+    return;
+  }
+  $('unit-nav').innerHTML = CURRICULUM.map(big => `
+    <div class="mb-5">
+      <div class="px-2 mb-1 text-[13px] font-black text-slate-800">${big.title}</div>
+      ${big.groups.map(g => `
+        ${g.title ? `<div class="px-2 mt-2.5 mb-1 text-xs font-bold text-slate-400">${g.title}</div>` : ''}
+        ${g.units.map(u => {
+          const n = countOf(currentCat, u.code), active = currentUnit === u.code;
+          return `<button onclick="selectUnit('${u.code}')" class="w-full flex items-center gap-2 text-left px-3 py-2 rounded-lg text-[13px] transition-colors ${active ? 'font-bold' : 'text-slate-600 hover:bg-slate-50'}" ${active ? 'style="background:var(--accent-soft);color:var(--accent)"' : ''}>
+            <span class="flex-1 leading-snug">${u.title}</span>
+            <span class="flex-shrink-0 text-[11px] tabular-nums ${n ? 'text-slate-500' : 'text-slate-300'}">${n}</span>
+          </button>`;
+        }).join('')}
+      `).join('')}
+    </div>`).join('');
+}
+
+window.changeCategory = function (cat) {
+  if (cat === 'mock') return showMockIntro();
+  currentCat = cat; setAccent(cat);
+  showWelcome();
+};
+
+function showWelcome() {
+  currentUnit = null; stopTimer(); renderSidebar();
+  const cat = CATEGORIES[currentCat], total = catTotal(currentCat);
+  setHeader(cat.title, '왼쪽 메뉴에서 소단원을 누르면 문제가 나와요.');
+  content.innerHTML = `
+    <div class="fade-in text-center pt-16 md:pt-24">
+      <p class="text-5xl mb-5">${cat.icon}</p>
+      <h3 class="text-2xl font-black text-slate-800 mb-2">${cat.title}</h3>
+      <p class="text-slate-500">${total ? `총 ${total}문제가 준비되어 있어요.` : '아직 등록된 문제가 없어요. 소단원 폴더에 이미지를 올려 주세요.'}</p>
+      <button onclick="toggleSidebar()" class="md:hidden mt-6 px-5 py-2.5 rounded-xl text-white font-bold" style="background:var(--accent)">단원 고르기</button>
+    </div>`;
+}
+
+/* ---------------- 단원 학습 ---------------- */
+window.selectUnit = function (code) {
+  stopTimer(); currentUnit = code;
+  const u = unitByCode[code];
+  list = catQuestions(currentCat, code); page = 1; isRandom = false;
+  setHeader(u.title, `${CATEGORIES[currentCat].title} · ${[u.big, u.group].filter(Boolean).join(' / ')} · ${list.length}문제`);
+  renderSidebar(); renderPage(); closeSidebarMobile();
+  $('scroll-area').scrollTo({ top: 0 });
+};
+
+window.setSort = function (mode) {
+  isRandom = mode === 'random'; page = 1;
+  if (isRandom) shuffle(list); else list.sort(byBookThenNumber);
+  renderPage();
+};
+window.changePage = function (d) {
+  const pages = Math.max(1, Math.ceil(list.length / PER_PAGE));
+  page = Math.min(pages, Math.max(1, page + d));
+  renderPage(); $('scroll-area').scrollTo({ top: 0, behavior: 'smooth' });
+};
+
+function renderPage() {
+  const pages = Math.max(1, Math.ceil(list.length / PER_PAGE));
+  const seg = (on, color) => on ? `bg-white shadow-sm font-bold" style="color:${color}` : 'text-slate-500 hover:text-slate-700';
+  content.innerHTML = `
+    <div class="no-print flex flex-col sm:flex-row justify-between items-center gap-3 bg-white p-3 rounded-2xl border border-slate-200 mb-6">
+      <div class="flex bg-slate-100 p-1 rounded-xl w-full sm:w-auto">
+        <button onclick="setSort('seq')" class="flex-1 sm:w-24 px-4 py-2 text-sm rounded-lg ${seg(!isRandom, 'var(--accent)')}">순서대로</button>
+        <button onclick="setSort('random')" class="flex-1 sm:w-24 px-4 py-2 text-sm rounded-lg ${seg(isRandom, 'var(--mock)')}">랜덤으로</button>
+      </div>
+      <div class="flex items-center gap-4">
+        <button onclick="changePage(-1)" class="p-2 rounded-lg bg-slate-50 hover:bg-slate-100 disabled:opacity-40" ${page <= 1 ? 'disabled' : ''} aria-label="이전 페이지">◀</button>
+        <span class="text-sm font-bold tabular-nums">${page} <span class="text-slate-400 font-normal">/ ${pages}</span></span>
+        <button onclick="changePage(1)" class="p-2 rounded-lg bg-slate-50 hover:bg-slate-100 disabled:opacity-40" ${page >= pages ? 'disabled' : ''} aria-label="다음 페이지">▶</button>
+      </div>
+    </div>
+    <div id="cards" class="space-y-8"></div>`;
+  renderCards(list.slice((page - 1) * PER_PAGE, page * PER_PAGE), $('cards'), false, (page - 1) * PER_PAGE);
+}
+
+/* ---------------- 모의고사 ---------------- */
+function showMockIntro() {
+  currentCat = 'mock'; currentUnit = null; stopTimer(); renderSidebar(); closeSidebarMobile();
+  setHeader('모의고사 만들기', '교재와 범위를 고르면 무작위로 출제돼요.');
+
+  const catsHtml = Object.entries(CATEGORIES).filter(([k]) => booksIn(k).length).map(([k, c]) => `
+    <label class="flex items-center gap-3 bg-white rounded-xl border border-slate-200 px-4 py-3 cursor-pointer">
+      <input type="checkbox" name="mock-cat" value="${k}" checked class="w-4 h-4 accent-amber-700">
+      <span class="font-bold" style="color:${c.color}">${c.icon} ${c.title}</span>
+      <span class="ml-auto text-xs text-slate-400 tabular-nums">${catTotal(k)}문제</span>
+    </label>`).join('');
+
+  const treeHtml = CURRICULUM.map((big, bi) => `
+    <div class="bg-white rounded-xl border border-slate-200 p-4">
+      <label class="flex items-center gap-2 font-bold text-slate-800 cursor-pointer mb-2">
+        <input type="checkbox" checked id="big-${bi}" onchange="toggleBig(${bi}, this.checked)" class="w-4 h-4 accent-amber-700">${big.title}
+      </label>
+      <div class="pl-6 space-y-1">
+        ${big.groups.map(g => `
+          ${g.title ? `<div class="text-xs font-bold text-slate-400 pt-1.5">${g.title}</div>` : ''}
+          ${g.units.map(u => `<label class="flex items-center gap-2 text-sm text-slate-600 cursor-pointer py-0.5">
+            <input type="checkbox" checked name="mock-unit" value="${u.code}" data-big="${bi}" onchange="syncBig(${bi})" class="w-4 h-4 accent-amber-700">
+            <span class="flex-1">${u.title}</span></label>`).join('')}
+        `).join('')}
+      </div>
+    </div>`).join('');
+
+  content.innerHTML = `
+    <div class="no-print bg-slate-100/70 rounded-3xl border border-slate-200 p-5 md:p-8 fade-in">
+      <fieldset class="mb-6">
+        <legend class="font-bold text-slate-700 mb-3">출제할 문제</legend>
+        <div class="grid gap-3 sm:grid-cols-2">${catsHtml}</div>
+      </fieldset>
+      <fieldset class="mb-6">
+        <legend class="font-bold text-slate-700 mb-3">출제 범위</legend>
+        <div class="grid gap-3 md:grid-cols-3">${treeHtml}</div>
+      </fieldset>
+      <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+        <label class="flex items-center gap-2 text-sm font-bold text-slate-700">문제 수
+          <select id="mock-count" class="p-2 border border-slate-200 rounded-lg bg-white">
+            <option value="10">10문제 (15분)</option><option value="20" selected>20문제 (30분)</option><option value="30">30문제 (45분)</option>
+          </select>
+        </label>
+        <button onclick="startMock()" class="sm:ml-auto px-7 py-3 rounded-xl text-white font-bold shadow-sm" style="background:var(--mock)">모의고사 시작</button>
+      </div>
+    </div>
+    <div id="mock-actions" class="no-print hidden justify-center gap-3 mt-6 flex-wrap">
+      <button onclick="printPDF('q')" class="px-5 py-2.5 bg-slate-800 text-white text-sm font-bold rounded-xl">📝 문제 PDF 저장</button>
+      <button onclick="printPDF('a')" class="px-5 py-2.5 text-white text-sm font-bold rounded-xl" style="background:var(--mock)">💡 해설 PDF 저장</button>
+    </div>
+    <div id="mock-cards" class="space-y-8 mt-8"></div>`;
+}
+
+window.toggleBig = function (bi, on) {
+  document.querySelectorAll(`input[name="mock-unit"][data-big="${bi}"]`).forEach(cb => cb.checked = on);
+};
+window.syncBig = function (bi) {
+  const kids = [...document.querySelectorAll(`input[name="mock-unit"][data-big="${bi}"]`)];
+  const n = kids.filter(k => k.checked).length, big = $(`big-${bi}`);
+  big.checked = n === kids.length; big.indeterminate = n > 0 && n < kids.length;
+};
+
+window.startMock = function () {
+  const cats = [...document.querySelectorAll('input[name="mock-cat"]:checked')].map(c => c.value);
+  const units = [...document.querySelectorAll('input[name="mock-unit"]:checked')].map(c => c.value);
+  const want = Number($('mock-count').value);
+  if (!cats.length) return showModal('문제풀기와 기출 문제 중 하나 이상 골라주세요.');
+  if (!units.length) return showModal('출제 범위를 하나 이상 골라주세요.');
+
+  const pool = [];
+  cats.forEach(cat => units.forEach(code => pool.push(...catQuestions(cat, code))));
+  if (!pool.length) return showModal('고른 범위에 등록된 문제가 없어요.');
+
+  const picked = shuffle(pool).slice(0, want);
+  const sec = Math.round(picked.length * MIN_PER_QUESTION) * 60;
+  setHeader('모의고사', picked.length < want
+    ? `범위 안의 문제가 ${picked.length}개뿐이라 ${picked.length}문제만 출제했어요. 제한 시간 ${sec / 60}분.`
+    : `${picked.length}문제 · 제한 시간 ${sec / 60}분. 실전처럼 풀어보세요.`);
+  const actions = $('mock-actions'); actions.classList.remove('hidden'); actions.classList.add('flex');
+  renderCards(picked, $('mock-cards'), true);
+  startTimer(sec);
+  setTimeout(() => $('mock-cards').scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
+};
+
+/* ---------------- 문제 카드 ---------------- */
+function renderCards(questions, target, mock, offset = 0) {
+  if (!questions.length) {
+    target.innerHTML = `<div class="bg-white p-10 rounded-2xl border border-slate-200 text-center text-slate-500">이 소단원에는 아직 문제가 없어요.<br><span class="text-sm text-slate-400">${currentUnit} 폴더에 이미지를 올렸는지 확인해 주세요.</span></div>`;
+    return;
+  }
+  target.innerHTML = questions.map((q, i) => {
+    const u = unitByCode[q.code], book = bookById[q.bookId], cat = CATEGORIES[book.category];
+    const label = `${offset + i + 1}번`;
+    // 출처 배지: 어느 교재 몇 번인지 (틀린 문제 찾아볼 때 필요)
+    const badges = `<span class="px-2 py-1 rounded text-[11px] font-bold" style="background:${cat.soft};color:${cat.color}">${book.short} ${q.number}번</span>`
+      + (mock ? `<span class="px-2 py-1 rounded text-[11px] font-bold bg-slate-100 text-slate-600">${u.title}</span>` : '');
+    const pen = (mode, color, cls, name) =>
+      `<button onclick="setTool('${q.id}','${mode}','${color}',this)" data-tool="${q.id}" aria-label="${name}" class="${cls} ${color === '#111827' ? 'tool-active' : ''}"></button>`;
+    return `
+    <article class="q-card bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden fade-in">
+      <div class="p-5 md:p-7">
+        <div class="flex items-center justify-between gap-3 mb-4">
+          <h3 class="text-xl font-black text-slate-800">${label}</h3>
+          <div class="flex gap-1.5 flex-wrap justify-end">${badges}</div>
+        </div>
+
+        <div class="draw-bar flex justify-end items-center gap-2 mb-3">
+          <div id="tools-${q.id}" class="hidden items-center gap-2.5 bg-slate-100 px-3 py-1.5 rounded-lg">
+            ${pen('pen', '#111827', 'w-4 h-4 rounded-full bg-gray-900', '검정 펜')}
+            ${pen('pen', '#ef4444', 'w-4 h-4 rounded-full bg-red-500', '빨강 펜')}
+            ${pen('pen', '#3b82f6', 'w-4 h-4 rounded-full bg-blue-500', '파랑 펜')}
+            <button onclick="setTool('${q.id}','eraser','',this)" data-tool="${q.id}" class="text-xs font-bold text-slate-600 px-2 py-0.5 rounded">지우개</button>
+            <button onclick="clearInk('${q.id}')" class="text-xs font-bold text-red-500 px-2 py-0.5 rounded hover:bg-red-50">모두 지우기</button>
+          </div>
+          <button onclick="toggleDraw('${q.id}')" id="drawbtn-${q.id}" class="px-3 py-1.5 bg-slate-100 text-slate-700 rounded-lg text-xs font-bold border border-slate-200">✏️ 필기 켜기</button>
+        </div>
+
+        <div class="question-image-section border border-slate-100 rounded-xl p-3 bg-slate-50 flex justify-center">
+          <div class="relative inline-block max-w-full">
+            <img id="img-${q.id}" src="${qPath(q.bookId, q.code, q.number)}" alt="${label} 문제" class="max-w-full h-auto rounded-lg select-none" draggable="false"
+                 onload="setupCanvas('${q.id}')" onerror="this.onerror=null;this.src=FALLBACK_Q">
+            <canvas id="cv-${q.id}" class="absolute inset-0 w-full h-full rounded-lg" style="pointer-events:none;touch-action:none"></canvas>
+          </div>
+        </div>
+
+        <div class="no-print flex justify-end border-t border-slate-100 mt-5 pt-4">
+          <button onclick="toggleAnswer('${q.id}')" id="ansbtn-${q.id}" class="px-4 py-2 text-white text-sm rounded-lg font-bold" style="background:${cat.color}" data-color="${cat.color}">정답 및 해설 보기</button>
+        </div>
+      </div>
+      <div id="ans-${q.id}" class="answer-section hidden border-t-2 border-dashed border-slate-200 bg-slate-50 p-5 md:p-7">
+        <div class="border border-slate-200 rounded-xl p-3 bg-white flex justify-center">
+          <img src="${aPath(q.bookId, q.code, q.number)}" loading="lazy" alt="${label} 해설" class="max-w-full h-auto rounded-lg" onerror="this.onerror=null;this.src=FALLBACK_A">
+        </div>
+      </div>
+    </article>`;
+  }).join('');
+}
+
+window.toggleAnswer = function (id) {
+  const box = $(`ans-${id}`), btn = $(`ansbtn-${id}`);
+  const opening = box.classList.contains('hidden');
+  box.classList.toggle('hidden', !opening);
+  if (opening) box.classList.add('fade-in');
+  btn.innerText = opening ? '해설 닫기' : '정답 및 해설 보기';
+  btn.style.background = opening ? '#475569' : btn.dataset.color;
+};
+
+/* ---------------- PDF 저장 ---------------- */
+window.printPDF = async function (type) {
+  document.body.classList.add(`print-${type}`);
+  const opened = [];
+  if (type === 'a') {
+    document.querySelectorAll('.answer-section.hidden').forEach(el => { el.classList.remove('hidden'); opened.push(el); });
+    const imgs = [...document.querySelectorAll('.answer-section img')];
+    imgs.forEach(img => img.loading = 'eager');
+    await Promise.all(imgs.map(img => img.complete ? null : new Promise(r => { img.addEventListener('load', r, { once: true }); img.addEventListener('error', r, { once: true }); })));
+  }
+  window.print();
+  document.body.classList.remove(`print-${type}`);
+  opened.forEach(el => el.classList.add('hidden'));
+};
+
+/* ---------------- 필기 (페이지를 넘겨도 유지) ---------------- */
+const ink = {}, pens = {};
+
+window.setupCanvas = function (id) {
+  const img = $(`img-${id}`), cv = $(`cv-${id}`);
+  if (!img || !cv || cv.dataset.ready) return;
+  cv.dataset.ready = '1';
+  cv.width = img.naturalWidth || 800; cv.height = img.naturalHeight || 400;
+  const ctx = cv.getContext('2d'); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  const st = pens[id] = { ctx, drawing: false, color: '#111827', mode: 'pen', last: null };
+
+  if (ink[id]) { const saved = new Image(); saved.onload = () => ctx.drawImage(saved, 0, 0, cv.width, cv.height); saved.src = ink[id]; }
+
+  const pos = e => { const r = cv.getBoundingClientRect(); return { x: (e.clientX - r.left) * cv.width / r.width, y: (e.clientY - r.top) * cv.height / r.height }; };
+
+  cv.addEventListener('pointerdown', e => {
+    if (cv.style.pointerEvents !== 'auto') return;
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    e.preventDefault(); cv.setPointerCapture(e.pointerId);
+    st.drawing = true; st.last = pos(e);
+  });
+  cv.addEventListener('pointermove', e => {
+    if (!st.drawing) return;
+    e.preventDefault();
+    const p = pos(e), scale = cv.width / cv.getBoundingClientRect().width;
+    ctx.globalCompositeOperation = st.mode === 'eraser' ? 'destination-out' : 'source-over';
+    ctx.strokeStyle = st.mode === 'eraser' ? '#000' : st.color;
+    ctx.lineWidth = scale * (st.mode === 'eraser' ? 24 : 2.5);
+    ctx.beginPath(); ctx.moveTo(st.last.x, st.last.y); ctx.lineTo(p.x, p.y); ctx.stroke();
+    st.last = p;
+  });
+  const end = () => { if (!st.drawing) return; st.drawing = false; ink[id] = cv.toDataURL(); };
+  ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(ev => cv.addEventListener(ev, end));
+};
+
+window.toggleDraw = function (id) {
+  const cv = $(`cv-${id}`), btn = $(`drawbtn-${id}`), tools = $(`tools-${id}`);
+  const on = cv.style.pointerEvents !== 'auto';
+  cv.style.pointerEvents = on ? 'auto' : 'none';
+  tools.classList.toggle('hidden', !on); tools.classList.toggle('flex', on);
+  btn.innerText = on ? '❌ 필기 끄기' : '✏️ 필기 켜기';
+  btn.style.background = on ? 'var(--accent-soft)' : ''; btn.style.color = on ? 'var(--accent)' : '';
+};
+window.setTool = function (id, mode, color, el) {
+  const st = pens[id]; if (!st) return;
+  st.mode = mode; if (color) st.color = color;
+  document.querySelectorAll(`[data-tool="${id}"]`).forEach(b => b.classList.remove('tool-active'));
+  el.classList.add('tool-active');
+};
+window.clearInk = function (id) {
+  const cv = $(`cv-${id}`); if (cv) cv.getContext('2d').clearRect(0, 0, cv.width, cv.height);
+  delete ink[id];
+};
+
+/* ---------------- 문제 목록 불러오기 ----------------
+   manifest.json은 깃허브에 올릴 때 자동으로 만들어져요 (.github/workflows/deploy.yml).
+   형식: { "practice/book1": { "1-1-1": [1, 2, 5], ... }, ... }                    */
+async function init() {
+  setAccent(currentCat);
+  try {
+    const res = await fetch('manifest.json', { cache: 'no-store' });
+    if (!res.ok) throw new Error(res.status);
+    const manifest = await res.json();
+    BOOKS.forEach(b => {
+      const units = manifest[b.dir] || {};
+      Object.keys(units).forEach(code => { db[b.id][code] = [...units[code]].sort((x, y) => x - y); });
+    });
+    showWelcome();
+  } catch (e) {
+    showWelcome();
+    showModal(location.protocol === 'file:'
+      ? '파일을 더블클릭해서 열면 문제를 불러올 수 없어요.\nGitHub Pages 주소로 열어 주세요.'
+      : '문제 목록(manifest.json)을 찾을 수 없어요.\n깃허브 Actions 탭에서 배포가 끝났는지 확인해 주세요.');
+  }
+}
+init();
+</script>
+</body>
+</html>
