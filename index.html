@@ -428,6 +428,7 @@ function renderCards(questions, target, mock, offset = 0) {
             ${pen('pen', '#111827', 'w-3.5 h-3.5 flex-shrink-0 rounded-full bg-gray-900', '검정 펜')}
             ${pen('pen', '#ef4444', 'w-3.5 h-3.5 flex-shrink-0 rounded-full bg-red-500', '빨강 펜')}
             ${pen('pen', '#3b82f6', 'w-3.5 h-3.5 flex-shrink-0 rounded-full bg-blue-500', '파랑 펜')}
+            <button onclick="toggleSize('${q.id}', this)" aria-label="펜 굵기" title="펜 굵기" class="flex-shrink-0 w-6 h-5 flex items-center justify-center rounded bg-white border border-slate-200 text-slate-700">${sizeIcon(penSize)}</button>
             <button onclick="setTool('${q.id}','eraser','',this)" data-tool="${q.id}" class="font-bold text-slate-600 px-1.5 py-0.5 rounded">지우개</button>
             <button onclick="clearInk('${q.id}')" class="font-bold text-red-500 px-1.5 py-0.5 rounded hover:bg-red-50">모두 지우기</button>
           </div>
@@ -481,6 +482,14 @@ window.printPDF = async function (type) {
 
 /* ---------------- 필기 (페이지를 넘겨도 유지) ---------------- */
 const ink = {}, pens = {};
+const PEN_WIDTH = { normal: 2.5, thin: 1.2 };   // 펜 굵기 2단계
+let penSize = 'normal';                           // 마지막으로 고른 굵기 (다음 문제에도 이어짐)
+const sizeIcon = size => `<svg width="14" height="14" viewBox="0 0 14 14"><line x1="2" y1="12" x2="12" y2="2" stroke="currentColor" stroke-linecap="round" stroke-width="${size === 'thin' ? 1.2 : 3}"/></svg>`;
+window.toggleSize = function (id, el) {
+  penSize = penSize === 'normal' ? 'thin' : 'normal';
+  if (pens[id]) pens[id].size = penSize;
+  el.innerHTML = sizeIcon(penSize);
+};
 
 window.setupCanvas = function (id) {
   const img = $(`img-${id}`), cv = $(`cv-${id}`);
@@ -488,7 +497,7 @@ window.setupCanvas = function (id) {
   cv.dataset.ready = '1';
   cv.width = img.naturalWidth || 800; cv.height = img.naturalHeight || 400;
   const ctx = cv.getContext('2d'); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-  const st = pens[id] = { ctx, drawing: false, color: '#111827', mode: 'pen', last: null };
+  const st = pens[id] = { ctx, drawing: false, color: '#111827', mode: 'pen', size: penSize, last: null };
 
   if (ink[id]) { const saved = new Image(); saved.onload = () => ctx.drawImage(saved, 0, 0, cv.width, cv.height); saved.src = ink[id]; }
 
@@ -506,7 +515,7 @@ window.setupCanvas = function (id) {
     const p = pos(e), scale = cv.width / cv.getBoundingClientRect().width;
     ctx.globalCompositeOperation = st.mode === 'eraser' ? 'destination-out' : 'source-over';
     ctx.strokeStyle = st.mode === 'eraser' ? '#000' : st.color;
-    ctx.lineWidth = scale * (st.mode === 'eraser' ? 24 : 2.5);
+    ctx.lineWidth = scale * (st.mode === 'eraser' ? 24 : PEN_WIDTH[st.size]);
     ctx.beginPath(); ctx.moveTo(st.last.x, st.last.y); ctx.lineTo(p.x, p.y); ctx.stroke();
     st.last = p;
   });
