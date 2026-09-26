@@ -93,6 +93,7 @@
 const CATEGORIES = {
   practice: { title: '문제풀기',  icon: '📖', color: '#0f766e', soft: '#e6f4f1' },
   past:     { title: '기출 문제', icon: '🗂️', color: '#1d4ed8', soft: '#e8eefc' },
+  ox:       { title: 'OX 퀴즈',  icon: '⭕', color: '#7c3aed', soft: '#f1ecfe' },
 };
 
 /* ============================================================
@@ -149,6 +150,8 @@ const CURRICULUM = [
 
 /* ④ 기타 설정 */
 const PER_PAGE = 1;            // 한 페이지 문제 수
+// 하단 버튼 공통 크기 (이전 / 정답 및 해설 / 다음)
+const BTN = 'px-3 sm:px-4 py-2 text-sm rounded-lg font-bold border whitespace-nowrap disabled:opacity-40';
 
 /* ---------------- 내부 데이터 ---------------- */
 const UNITS = [];
@@ -210,7 +213,7 @@ function closeModal(force = false) { if (!isLocked || force) { isLocked = false;
 /* ---------------- 사이드바 ---------------- */
 function renderSidebar() {
   // 카테고리 탭
-  const tabs = Object.entries(CATEGORIES).filter(([k]) => booksIn(k).length)
+  const tabs = Object.entries(CATEGORIES).filter(([k]) => k === 'ox' || booksIn(k).length)
     .map(([k, c]) => ({ k, label: c.title, icon: c.icon, color: c.color }))
     .concat({ k: 'mock', label: '모의고사', icon: '📝', color: 'var(--mock)' });
   const catTabs = $('cat-tabs');
@@ -232,7 +235,7 @@ function renderSidebar() {
       ${big.groups.map(g => `
         ${g.title ? `<div class="px-2 mt-2.5 mb-1 text-xs font-bold text-slate-400">${g.title}</div>` : ''}
         ${g.units.map(u => {
-          const n = countOf(currentCat, u.code), active = currentUnit === u.code;
+          const n = currentCat === 'ox' ? oxCount(u.code) : countOf(currentCat, u.code), active = currentUnit === u.code;
           return `<button onclick="selectUnit('${u.code}')" class="w-full flex items-center gap-2 text-left px-3 py-2 rounded-lg text-[13px] transition-colors ${active ? 'font-bold' : 'text-slate-600 hover:bg-slate-50'}" ${active ? 'style="background:var(--accent-soft);color:var(--accent)"' : ''}>
             <span class="flex-1 leading-snug">${u.title}</span>
             <span class="flex-shrink-0 text-[11px] tabular-nums ${n ? 'text-slate-500' : 'text-slate-300'}">${n}</span>
@@ -250,6 +253,7 @@ window.changeCategory = function (cat) {
 
 function showWelcome() {
   currentUnit = null; renderSidebar();
+  if (currentCat === 'ox') return showOxWelcome();
   const cat = CATEGORIES[currentCat], total = catTotal(currentCat);
   setHeader(cat.title, '왼쪽 메뉴에서 소단원을 누르면 문제가 나와요.');
   content.innerHTML = `
@@ -263,6 +267,7 @@ function showWelcome() {
 
 /* ---------------- 단원 학습 ---------------- */
 window.selectUnit = function (code) {
+  if (currentCat === 'ox') return startOx(code);
   currentUnit = code;
   const u = unitByCode[code];
   list = catQuestions(currentCat, code); page = 1; isRandom = false;
@@ -297,11 +302,7 @@ function renderPage() {
         <button onclick="changePage(1)" class="p-2 rounded-lg bg-slate-50 hover:bg-slate-100 disabled:opacity-40" ${page >= pages ? 'disabled' : ''} aria-label="다음 페이지">▶</button>
       </div>
     </div>
-    <div id="cards" class="space-y-8"></div>
-    ${list.length ? `<div class="no-print flex gap-3 mt-4">
-      <button onclick="changePage(-1)" class="flex-1 py-3 rounded-xl bg-white border border-slate-200 font-bold text-slate-600 disabled:opacity-40" ${page <= 1 ? 'disabled' : ''}>◀ 이전 문제</button>
-      <button onclick="changePage(1)" class="flex-1 py-3 rounded-xl text-white font-bold disabled:opacity-40" style="background:var(--accent)" ${page >= pages ? 'disabled' : ''}>다음 문제 ▶</button>
-    </div>` : ''}`;
+    <div id="cards" class="space-y-8"></div>`;
   renderCards(list.slice((page - 1) * PER_PAGE, page * PER_PAGE), $('cards'), false, (page - 1) * PER_PAGE);
 }
 
@@ -488,8 +489,10 @@ function renderCards(questions, target, mock, offset = 0) {
           </div>
         </div>
 
-        <div class="no-print flex justify-end border-t border-slate-100 mt-5 pt-4">
-          <button onclick="toggleAnswer('${q.id}')" id="ansbtn-${q.id}" class="px-4 py-2 text-white text-sm rounded-lg font-bold" style="background:${cat.color}" data-color="${cat.color}">정답 및 해설 보기</button>
+        <div class="no-print flex items-center justify-between gap-2 border-t border-slate-100 mt-5 pt-4">
+          ${mock ? '<span></span>' : `<button onclick="changePage(-1)" class="${BTN} bg-white border-slate-200 text-slate-600" ${page <= 1 ? 'disabled' : ''}>◀ 이전</button>`}
+          <button onclick="toggleAnswer('${q.id}')" id="ansbtn-${q.id}" class="${BTN} text-white border-transparent" style="background:${cat.color}" data-color="${cat.color}">정답 및 해설 보기</button>
+          ${mock ? '<span></span>' : `<button onclick="changePage(1)" class="${BTN} bg-white border-slate-200 text-slate-600" ${page >= Math.ceil(list.length / PER_PAGE) ? 'disabled' : ''}>다음 ▶</button>`}
         </div>
       </div>
       <div id="ans-${q.id}" class="answer-section hidden border-t-2 border-dashed border-slate-200 bg-slate-50 p-5 md:p-7">
@@ -572,11 +575,179 @@ window.clearInk = function (id) {
   delete ink[id];
 };
 
+/* ================= OX 퀴즈 =================
+   ox.txt (탭으로 구분)  대단원 | 소단원 | 문장 | 정답(O/X) | 해설
+   엑셀에서 표를 복사해 메모장에 붙여넣고 ox.txt로 저장하면 돼요.            */
+let OX = [], oxSkipped = [];
+const OX_ALIAS = {   // 파일의 소단원 이름 → 사이트 단원 코드 (이름이 다를 때)
+  '과학의유용성과필요성': '3-1', '빅데이터의활용': '3-1',
+  '과학기술의발전과한계': '3-2', '과학관련사회적쟁점과과학윤리': '3-2',
+};
+const squash = t => (t || '').replace(/\s/g, '');
+function matchUnit(name) {
+  const n = squash(name);
+  if (!n) return null;
+  if (OX_ALIAS[n]) return OX_ALIAS[n];
+  const exact = UNITS.find(u => squash(u.title) === n);
+  if (exact) return exact.code;
+  const part = UNITS.find(u => n.length >= 3 && (squash(u.title).includes(n) || n.includes(squash(u.title))));
+  return part ? part.code : null;
+}
+function decodeText(buf) {
+  const b = new Uint8Array(buf);
+  if (b[0] === 0xFF && b[1] === 0xFE) return new TextDecoder('utf-16le').decode(buf);   // 엑셀 '유니코드 텍스트'
+  if (b[0] === 0xFE && b[1] === 0xFF) return new TextDecoder('utf-16be').decode(buf);
+  try { return new TextDecoder('utf-8', { fatal: true }).decode(buf); }                 // 메모장 기본
+  catch { return new TextDecoder('euc-kr').decode(buf); }                               // 엑셀 '텍스트(탭으로 분리)'
+}
+function parseOx(text) {
+  const out = [], skipped = [];
+  const unq = c => { c = c.trim(); return (c.startsWith('"') && c.endsWith('"')) ? c.slice(1, -1).replace(/""/g, '"') : c; };
+  text.split(/\r?\n/).forEach(line => {
+    const c = line.split('\t').map(unq);
+    if (c.length < 4 || c[3] === '정답' || !c[2]) return;
+    const a = c[3].toUpperCase();
+    const ans = ['O', 'Ｏ', '○', '⭕', 'ㅇ'].includes(a) ? true : ['X', 'Ｘ', '×', '✕', '❌'].includes(a) ? false : null;
+    const code = matchUnit(c[1]);
+    if (!code || ans === null) { skipped.push(c[1] + ' / ' + c[2]); return; }
+    out.push({ code, q: c[2], ans, exp: c[4] || '' });
+  });
+  return { out, skipped };
+}
+async function loadOx() {
+  try {
+    const r = await fetch('ox.txt', { cache: 'no-store' });
+    if (!r.ok) return;
+    const { out, skipped } = parseOx(decodeText(await r.arrayBuffer()));
+    OX = out; oxSkipped = skipped;
+    if (skipped.length) console.warn('OX: 단원을 찾지 못했거나 정답 칸이 O/X가 아닌 줄', skipped);
+  } catch (e) { console.warn('OX 파일을 읽지 못했어요', e); }
+}
+const oxCount = code => OX.filter(x => x.code === code).length;
+
+let ox = { scope: null, items: [], idx: 0, right: 0, wrong: [], answered: null, random: false };
+
+function showOxWelcome() {
+  setHeader('OX 퀴즈', '왼쪽 메뉴에서 소단원을 고르거나, 전체를 섞어서 풀어 보세요.');
+  content.innerHTML = `
+    <div class="fade-in text-center pt-16 md:pt-24">
+      <p class="text-5xl mb-5">⭕</p>
+      <h3 class="text-2xl font-black text-slate-800 mb-2">OX 퀴즈</h3>
+      <p class="text-slate-500">${OX.length ? `총 ${OX.length}문장이 준비되어 있어요.` : '아직 문장이 없어요. ox.txt 파일을 올려 주세요.'}</p>
+      ${oxSkipped.length ? `<p class="text-xs text-amber-700 mt-2">단원을 찾지 못한 문장 ${oxSkipped.length}개는 빠졌어요.</p>` : ''}
+      ${OX.length ? `<button onclick="ox.random = true; startOx('all')" class="mt-6 px-5 py-2.5 rounded-xl text-white font-bold" style="background:var(--accent)">전체 섞어서 풀기</button>` : ''}
+      <div><button onclick="toggleSidebar()" class="md:hidden mt-3 px-5 py-2.5 rounded-xl border border-slate-200 bg-white font-bold text-slate-600">단원 고르기</button></div>
+    </div>`;
+}
+
+window.startOx = function (scope, items) {
+  currentUnit = scope === 'all' ? null : scope;
+  if (!items) {
+    items = OX.filter(x => scope === 'all' || x.code === scope);
+    if (ox.random) items = shuffle([...items]);
+  }
+  ox = { ...ox, scope, items, idx: 0, right: 0, wrong: [], answered: null };
+  const u = unitByCode[scope];
+  setHeader(u ? u.title : 'OX 퀴즈 · 전체', `OX 퀴즈 · ${items.length}문장`);
+  renderSidebar(); renderOx(); closeSidebarMobile();
+  $('scroll-area').scrollTo({ top: 0 });
+};
+window.setOxSort = function (mode) {
+  ox.random = mode === 'random';
+  startOx(ox.scope);
+};
+window.answerOx = function (choice) {
+  const it = ox.items[ox.idx];
+  if (!it || ox.answered !== null) return;
+  ox.answered = choice;
+  if (choice === it.ans) ox.right++; else ox.wrong.push(it);
+  renderOx();
+};
+window.nextOx = function () {
+  if (ox.answered === null) return;
+  ox.idx++; ox.answered = null;
+  renderOx(); $('scroll-area').scrollTo({ top: 0, behavior: 'smooth' });
+};
+window.retryOx = function (onlyWrong) {
+  startOx(ox.scope, onlyWrong ? shuffle([...ox.wrong]) : undefined);
+};
+
+function renderOx() {
+  const n = ox.items.length;
+  if (!n) {
+    content.innerHTML = `<div class="bg-white p-10 rounded-2xl border border-slate-200 text-center text-slate-500">이 소단원에는 아직 OX 문장이 없어요.</div>`;
+    return;
+  }
+  const seg = (on, color) => on ? `bg-white shadow-sm font-bold" style="color:${color}` : 'text-slate-500 hover:text-slate-700';
+  const bar = `
+    <div class="flex justify-between items-center gap-2 bg-white p-2 md:p-3 rounded-2xl border border-slate-200 mb-4 md:mb-6">
+      <div class="flex bg-slate-100 p-1 rounded-xl">
+        <button onclick="setOxSort('seq')" class="px-3 md:px-4 py-1.5 md:py-2 text-xs md:text-sm rounded-lg whitespace-nowrap ${seg(!ox.random, 'var(--accent)')}">순서대로</button>
+        <button onclick="setOxSort('random')" class="px-3 md:px-4 py-1.5 md:py-2 text-xs md:text-sm rounded-lg whitespace-nowrap ${seg(ox.random, 'var(--mock)')}">랜덤으로</button>
+      </div>
+      <div class="text-sm font-bold tabular-nums pr-2">${Math.min(ox.idx + 1, n)} <span class="text-slate-400 font-normal">/ ${n}</span></div>
+    </div>
+    <div class="h-1.5 bg-slate-200 rounded-full mb-5 overflow-hidden"><div class="h-full rounded-full transition-all" style="width:${ox.idx / n * 100}%;background:var(--accent)"></div></div>`;
+
+  // 결과 화면
+  if (ox.idx >= n) {
+    const pct = Math.round(ox.right / n * 100);
+    content.innerHTML = bar + `
+      <div class="bg-white rounded-2xl border border-slate-200 p-6 md:p-8 fade-in text-center">
+        <p class="text-5xl mb-3">${pct >= 90 ? '🏆' : pct >= 70 ? '👍' : '💪'}</p>
+        <h3 class="text-2xl font-black text-slate-800">${n}문장 중 ${ox.right}개 맞혔어요</h3>
+        <p class="text-slate-500 mt-1">정답률 ${pct}%</p>
+        <div class="flex justify-center flex-wrap gap-2 mt-6">
+          ${ox.wrong.length ? `<button onclick="retryOx(true)" class="${BTN} text-white border-transparent" style="background:var(--accent)">틀린 문장만 다시</button>` : ''}
+          <button onclick="retryOx(false)" class="${BTN} bg-white border-slate-200 text-slate-600">처음부터 다시</button>
+        </div>
+      </div>
+      ${ox.wrong.length ? `<h4 class="font-bold text-slate-700 mt-8 mb-3">틀린 문장 ${ox.wrong.length}개</h4>
+      <div class="space-y-3">${ox.wrong.map(w => `
+        <div class="bg-white rounded-xl border border-slate-200 p-4">
+          <p class="font-medium text-slate-800 leading-relaxed">${w.q}</p>
+          <p class="text-sm mt-2"><b class="${w.ans ? 'text-blue-600' : 'text-red-600'}">정답 ${w.ans ? 'O' : 'X'}</b><span class="text-slate-500 ml-2">${w.exp}</span></p>
+        </div>`).join('')}</div>` : ''}`;
+    return;
+  }
+
+  // 문제 화면
+  const it = ox.items[ox.idx], done = ox.answered !== null, correct = done && ox.answered === it.ans;
+  const oxBtn = (val, label, base) => {
+    let cls = `${base} bg-white`;
+    if (done) {
+      if (val === it.ans) cls = 'border-emerald-500 bg-emerald-50 text-emerald-600';
+      else if (val === ox.answered) cls = 'border-red-400 bg-red-50 text-red-500';
+      else cls = 'border-slate-200 bg-white text-slate-300';
+    }
+    return `<button onclick="answerOx(${val})" ${done ? 'disabled' : ''} class="h-24 md:h-28 rounded-2xl border-2 text-5xl md:text-6xl font-black transition-colors ${cls}">${label}</button>`;
+  };
+  content.innerHTML = bar + `
+    <article class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 md:p-8 fade-in">
+      ${ox.scope === 'all' ? `<p class="text-xs font-bold mb-3" style="color:var(--accent)">${unitByCode[it.code].title}</p>` : ''}
+      <p class="text-lg md:text-xl font-bold text-slate-800 leading-relaxed break-keep">${it.q}</p>
+      <div class="grid grid-cols-2 gap-3 mt-6">
+        ${oxBtn(true, 'O', 'border-blue-200 text-blue-500 hover:bg-blue-50')}
+        ${oxBtn(false, 'X', 'border-red-200 text-red-500 hover:bg-red-50')}
+      </div>
+      ${done ? `
+      <div class="mt-5 rounded-xl p-4 fade-in ${correct ? 'bg-emerald-50' : 'bg-red-50'}">
+        <p class="font-black ${correct ? 'text-emerald-700' : 'text-red-600'}">${correct ? '정답이에요!' : `아쉬워요, 정답은 ${it.ans ? 'O' : 'X'}예요`}</p>
+        ${it.exp ? `<p class="text-sm text-slate-600 mt-1.5 leading-relaxed">${it.exp}</p>` : ''}
+      </div>` : ''}
+      <div class="flex items-center justify-between gap-2 border-t border-slate-100 mt-5 pt-4">
+        <span class="text-sm text-slate-500">맞힘 <b class="text-emerald-600">${ox.right}</b> · 틀림 <b class="text-red-500">${ox.wrong.length}</b></span>
+        <button onclick="nextOx()" ${done ? '' : 'disabled'} class="${BTN} text-white border-transparent" style="background:var(--accent)">${ox.idx + 1 >= n ? '결과 보기' : '다음 ▶'}</button>
+      </div>
+    </article>`;
+}
+
 /* ---------------- 문제 목록 불러오기 ----------------
    manifest.json은 '문제목록 만들기.bat'을 더블클릭하면 만들어져요. (이미지를 추가할 때마다 다시 실행)
    형식: { "practice/book1": { "1-1-1": [1, 2, 5], ... }, ... }                    */
 async function init() {
   setAccent(currentCat);
+  await loadOx();
   try {
     const res = await fetch('manifest.json', { cache: 'no-store' });
     if (!res.ok) throw new Error(res.status);
@@ -594,7 +765,15 @@ async function init() {
   }
 }
 document.addEventListener('keydown', e => {
-  if (isMock() || !currentUnit || !list.length || e.target.closest('input, select, textarea')) return;
+  if (e.target.closest('input, select, textarea')) return;
+  if (currentCat === 'ox') {   // O / X 키로 답하고, Enter·→ 로 다음 (한글 입력 상태 ㅐ/ㅌ도 인식)
+    const k = e.key.toLowerCase();
+    if (k === 'o' || k === 'ㅐ') answerOx(true);
+    else if (k === 'x' || k === 'ㅌ') answerOx(false);
+    else if (k === 'enter' || k === 'arrowright') nextOx();
+    return;
+  }
+  if (isMock() || !currentUnit || !list.length) return;
   if (e.key === 'ArrowLeft') changePage(-1);
   if (e.key === 'ArrowRight') changePage(1);
 });
