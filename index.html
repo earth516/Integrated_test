@@ -543,7 +543,7 @@ function renderCards(questions, target, mock, offset = 0) {
           <div class="relative inline-block max-w-full">
             <img id="img-${q.id}" src="${qPath(q.bookId, q.code, q.number)}" alt="${label} 문제" class="max-w-full h-auto rounded-lg select-none" draggable="false"
                  onload="setupCanvas('${q.id}')" onerror="this.onerror=null;this.src=FALLBACK_Q">
-            <canvas id="cv-${q.id}" class="absolute inset-0 w-full h-full rounded-lg" style="pointer-events:none;touch-action:none"></canvas>
+            <canvas id="cv-${q.id}" class="absolute inset-0 w-full h-full rounded-lg" style="pointer-events:none;touch-action:pinch-zoom"></canvas>
           </div>
         </div>
 
@@ -574,7 +574,8 @@ window.toggleAnswer = function (id) {
 /* ---------------- 필기 (페이지를 넘겨도 유지) ---------------- */
 const ink = {}, pens = {};
 const PEN_WIDTH = { normal: 2.5, thin: 1.2 };   // 펜 굵기 2단계
-let penSize = 'normal';                           // 마지막으로 고른 굵기 (다음 문제에도 이어짐)
+let penSize = 'normal';
+let penSeen = false;                              // 펜(스타일러스)을 쓴 적이 있는지                           // 마지막으로 고른 굵기 (다음 문제에도 이어짐)
 const sizeIcon = size => `<svg width="14" height="14" viewBox="0 0 14 14"><line x1="2" y1="12" x2="12" y2="2" stroke="currentColor" stroke-linecap="round" stroke-width="${size === 'thin' ? 1.2 : 3}"/></svg>`;
 window.toggleSize = function (id, el) {
   penSize = penSize === 'normal' ? 'thin' : 'normal';
@@ -594,14 +595,31 @@ window.setupCanvas = function (id) {
 
   const pos = e => { const r = cv.getBoundingClientRect(); return { x: (e.clientX - r.left) * cv.width / r.width, y: (e.clientY - r.top) * cv.height / r.height }; };
 
+  /* 손가락이 여러 개 닿으면(두 손가락 확대) 그리던 선을 취소하고 확대만 되게 함.
+     펜(애플펜슬·S펜)을 한 번이라도 쓰면, 그 뒤로 손가락은 필기하지 않음(손바닥 인식 방지). */
+  const touching = new Set();
+  const restore = () => {   // 이번 획을 지우고 직전 상태로 되돌리기
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    if (ink[id]) { const saved = new Image(); saved.onload = () => ctx.drawImage(saved, 0, 0, cv.width, cv.height); saved.src = ink[id]; }
+  };
+  const abort = () => { if (st.drawing) { st.drawing = false; st.pid = null; restore(); } };
+
   cv.addEventListener('pointerdown', e => {
     if (cv.style.pointerEvents !== 'auto') return;
     if (e.pointerType === 'mouse' && e.button !== 0) return;
+    if (e.pointerType === 'pen') penSeen = true;
+    if (e.pointerType === 'touch') {
+      touching.add(e.pointerId);
+      if (touching.size > 1) return abort();   // 두 손가락 → 확대 동작
+      if (penSeen) return;                     // 펜 사용 중이면 손가락은 무시
+    }
+    if (st.drawing) return;                    // 이미 다른 포인터로 그리는 중
     e.preventDefault(); cv.setPointerCapture(e.pointerId);
-    st.drawing = true; st.last = pos(e);
+    st.drawing = true; st.pid = e.pointerId; st.last = pos(e);
   });
   cv.addEventListener('pointermove', e => {
-    if (!st.drawing) return;
+    if (!st.drawing || e.pointerId !== st.pid) return;
     e.preventDefault();
     const p = pos(e), scale = cv.width / cv.getBoundingClientRect().width;
     ctx.globalCompositeOperation = st.mode === 'eraser' ? 'destination-out' : 'source-over';
@@ -610,7 +628,12 @@ window.setupCanvas = function (id) {
     ctx.beginPath(); ctx.moveTo(st.last.x, st.last.y); ctx.lineTo(p.x, p.y); ctx.stroke();
     st.last = p;
   });
-  const end = () => { if (!st.drawing) return; st.drawing = false; ink[id] = cv.toDataURL(); };
+  const end = e => {
+    touching.delete(e.pointerId);
+    if (!st.drawing || e.pointerId !== st.pid) return;
+    if (e.type === 'pointercancel') return abort();   // 브라우저가 확대로 가져간 경우
+    st.drawing = false; st.pid = null; ink[id] = cv.toDataURL();
+  };
   ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(ev => cv.addEventListener(ev, end));
 };
 
