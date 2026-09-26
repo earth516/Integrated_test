@@ -9,7 +9,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&display=swap" rel="stylesheet">
 <style>
   :root { --accent: #0f766e; --accent-soft: #e6f4f1; --mock: #b45309; --mock-soft: #fdf3e7; }
-  body { font-family: 'Noto Sans KR', system-ui, -apple-system, sans-serif; }
+  body { font-family: 'Noto Sans KR', system-ui, -apple-system, sans-serif; word-break: keep-all; overflow-wrap: break-word; }  /* 한글이 단어 중간에서 끊기지 않게 */
   .fade-in { animation: fadeIn .25s ease-out; }
   @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
   @media (prefers-reduced-motion: reduce) { .fade-in { animation: none; } }
@@ -720,15 +720,14 @@ const oxCount = code => OX.filter(x => x.code === code).length;
 let ox = { scope: null, items: [], idx: 0, right: 0, wrong: [], answered: null, random: false };
 
 function showOxWelcome() {
-  setHeader('OX 퀴즈', '왼쪽 메뉴에서 소단원을 고르거나, 전체를 섞어서 풀어 보세요.');
+  setHeader('OX 퀴즈', '왼쪽 메뉴에서 소단원을 누르면 문장이 나와요.');
   content.innerHTML = `
     <div class="fade-in text-center pt-16 md:pt-24">
       <p class="text-5xl mb-5">⭕</p>
       <h3 class="text-2xl font-black text-slate-800 mb-2">OX 퀴즈</h3>
       <p class="text-slate-500">${OX.length ? `총 ${OX.length}문장이 준비되어 있어요.` : '아직 문장이 없어요. ox.txt 파일을 올려 주세요.'}</p>
       ${oxSkipped.length ? `<p class="text-xs text-amber-700 mt-2">단원을 찾지 못한 문장 ${oxSkipped.length}개는 빠졌어요.</p>` : ''}
-      ${OX.length ? `<button onclick="ox.random = true; startOx('all')" class="mt-6 px-5 py-2.5 rounded-xl text-white font-bold" style="background:var(--accent)">전체 섞어서 풀기</button>` : ''}
-      <div><button onclick="openSidebar()" class="mt-3 px-5 py-2.5 rounded-xl border border-slate-200 bg-white font-bold text-slate-600">단원 선택하기</button></div>
+      <button onclick="openSidebar()" class="mt-6 px-6 py-3 rounded-xl text-white font-bold shadow-sm" style="background:var(--accent)">단원 선택하기</button>
     </div>`;
 }
 
