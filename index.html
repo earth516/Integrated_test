@@ -46,6 +46,23 @@
 </head>
 <body class="h-screen overflow-hidden flex bg-slate-50 text-slate-800">
 
+<!-- 로그인 화면 -->
+<div id="login" class="hidden fixed inset-0 z-[70] bg-slate-50 flex items-center justify-center p-4 overflow-y-auto">
+  <form onsubmit="event.preventDefault(); doLogin();" class="bg-white w-full max-w-sm rounded-3xl border border-slate-200 shadow-sm p-7 md:p-8">
+    <div class="flex items-center gap-2.5 mb-1">
+      <img src="logo.png" alt="" class="w-10 h-10" onerror="this.remove()">
+      <h1 class="text-xl font-black tracking-tight text-slate-800">SJ 통합과학 문제은행</h1>
+    </div>
+    <p class="text-sm text-slate-500 mb-6">선생님께 받은 학번과 비밀번호로 로그인하세요.</p>
+    <label class="block text-sm font-bold text-slate-700 mb-1.5" for="login-id">학번</label>
+    <input id="login-id" inputmode="numeric" autocomplete="username" class="w-full mb-4 px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-base">
+    <label class="block text-sm font-bold text-slate-700 mb-1.5" for="login-pw">비밀번호</label>
+    <input id="login-pw" type="password" autocomplete="current-password" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-base">
+    <p id="login-err" class="text-sm text-red-500 mt-3 min-h-[1.25rem]"></p>
+    <button id="login-btn" class="w-full mt-2 py-3 rounded-xl text-white font-bold" style="background:var(--accent)">로그인</button>
+  </form>
+</div>
+
 <div id="modal" class="hidden fixed inset-0 z-[60] bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
   <div class="bg-white rounded-3xl shadow-2xl max-w-sm w-full p-8 text-center fade-in">
     <p id="modal-msg" class="text-slate-700 font-medium leading-relaxed whitespace-pre-line"></p>
@@ -68,6 +85,7 @@
   <div class="flex-1 overflow-y-auto px-3 py-4">
     <nav id="unit-nav"></nav>
   </div>
+  <div id="user-box" class="hidden px-4 py-3 border-t border-slate-100 text-sm"></div>
 </aside>
 <div id="sidebar-overlay" onclick="toggleSidebar()" class="fixed inset-0 bg-slate-900/30 z-30"></div>
 
@@ -148,7 +166,16 @@ const CURRICULUM = [
   ]},
 ];
 
-/* ④ 기타 설정 */
+/* ============================================================
+   ④ 로그인·기록 연동 (구글 시트 + Apps Script)
+   - API_URL : Apps Script 웹 앱 주소를 따옴표 안에 붙여넣기
+               비워 두면 로그인 없이 지금처럼 동작해요.
+   - SUBJECT : 시트의 '과목' 칸에 들어가는 이름 (지구과학 사이트는 '지구과학')
+   ============================================================ */
+const API_URL = 'https://script.google.com/macros/s/AKfycbz5YaSrGYVM1d8mo36PDr1puUWKMNoJD9ZDdf8Xa0OVIUyMYAacsbPBXWMOE3xW5Xuf9A/exec';
+const SUBJECT = '통합과학';
+
+/* ⑤ 기타 설정 */
 const PER_PAGE = 1;            // 한 페이지 문제 수
 // 하단 버튼 공통 크기 (이전 / 정답 및 해설 / 다음)
 const BTN = 'px-3 sm:px-4 py-2 text-sm rounded-lg font-bold border whitespace-nowrap disabled:opacity-40';
@@ -181,7 +208,8 @@ const content = $('content');
 const isMock = () => currentCat === 'mock';
 
 function getQuestions(bookId, code) {
-  return (db[bookId][code] || []).map(n => ({ id: `${bookId}__${n}`, bookId, code, number: n }));
+  // key: 시트에 저장되는 문제 이름 (예: practice/book1/1-1-2/17)
+  return (db[bookId][code] || []).map(n => ({ id: `${bookId}__${n}`, key: `${bookById[bookId].dir}/${code}/${n}`, bookId, code, number: n }));
 }
 const bookOrder = Object.fromEntries(BOOKS.map((b, i) => [b.id, i]));
 const byBookThenNumber = (a, b) => (bookOrder[a.bookId] - bookOrder[b.bookId]) || (a.number - b.number);
@@ -229,7 +257,16 @@ function renderSidebar() {
     $('unit-nav').innerHTML = `<p class="px-2 text-sm text-slate-500 leading-relaxed">오른쪽 화면에서 출제 범위를 골라 모의고사를 만들어 보세요.</p>`;
     return;
   }
-  $('unit-nav').innerHTML = CURRICULUM.map(big => `
+  // 로그인했을 때만: 체크한 문제 / 틀린 OX 모음
+  let collect = '';
+  if (user) {
+    const isOx = currentCat === 'ox';
+    const n = isOx ? oxWrongItems().length : starredIn(currentCat).length;
+    const key = isOx ? '__wrong' : '__star', active = currentUnit === key;
+    collect = `<button onclick="${isOx ? "startOx('wrong')" : 'selectStarred()'}" class="w-full flex items-center gap-2 text-left px-3 py-2.5 mb-4 rounded-xl border text-[13px] font-bold transition-colors ${active ? '' : 'border-slate-200 text-slate-700 hover:bg-slate-50'}" ${active ? 'style="background:var(--accent-soft);color:var(--accent);border-color:transparent"' : ''}>
+      <span class="flex-1">${isOx ? '❌ 틀린 문장' : '⭐ 체크한 문제'}</span><span class="text-[11px] tabular-nums ${n ? 'text-slate-500' : 'text-slate-300'}">${n}</span></button>`;
+  }
+  $('unit-nav').innerHTML = collect + CURRICULUM.map(big => `
     <div class="mb-5">
       <div class="px-2 mb-1 text-[13px] font-black text-slate-800">${big.title}</div>
       ${big.groups.map(g => `
@@ -451,9 +488,12 @@ window.printSheet = async function (type) {
 /* ---------------- 문제 카드 ---------------- */
 function renderCards(questions, target, mock, offset = 0) {
   if (!questions.length) {
-    target.innerHTML = `<div class="bg-white p-10 rounded-2xl border border-slate-200 text-center text-slate-500">이 소단원에는 아직 문제가 없어요.<br><span class="text-sm text-slate-400">${currentUnit} 폴더에 이미지를 올렸는지 확인해 주세요.</span></div>`;
+    target.innerHTML = currentUnit === '__star'
+      ? `<div class="bg-white p-10 rounded-2xl border border-slate-200 text-center text-slate-500">아직 체크한 문제가 없어요.<br><span class="text-sm text-slate-400">문제 번호 옆의 ☆를 누르면 여기에 모여요.</span></div>`
+      : `<div class="bg-white p-10 rounded-2xl border border-slate-200 text-center text-slate-500">이 소단원에는 아직 문제가 없어요.<br><span class="text-sm text-slate-400">${currentUnit} 폴더에 이미지를 올렸는지 확인해 주세요.</span></div>`;
     return;
   }
+  questions.forEach(q => { qIndex[q.id] = q; });
   target.innerHTML = questions.map((q, i) => {
     const u = unitByCode[q.code], book = bookById[q.bookId], cat = CATEGORIES[book.category];
     const label = `${offset + i + 1}번`;
@@ -465,7 +505,7 @@ function renderCards(questions, target, mock, offset = 0) {
     <article class="q-card bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden fade-in">
       <div class="p-4 md:p-7">
         <div class="flex items-center justify-between gap-3 mb-4">
-          <h3 class="text-xl font-black text-slate-800">${label}</h3>
+          <h3 class="text-xl font-black text-slate-800 flex items-center gap-1.5">${label}${!mock && user ? `<button onclick="toggleStar('${q.id}')" id="star-${q.id}" aria-label="체크" title="체크해 두면 '체크한 문제'에서 모아 볼 수 있어요" class="w-9 h-9 -my-1 flex items-center justify-center rounded-lg text-2xl leading-none hover:bg-slate-50 ${starSet.has(q.key) ? 'text-amber-400' : 'text-slate-300'}">${starSet.has(q.key) ? '★' : '☆'}</button>` : ''}</h3>
           <div class="flex gap-1.5 flex-wrap justify-end">${badges}</div>
         </div>
 
@@ -610,7 +650,7 @@ function parseOx(text) {
     const ans = ['O', 'Ｏ', '○', '⭕', 'ㅇ'].includes(a) ? true : ['X', 'Ｘ', '×', '✕', '❌'].includes(a) ? false : null;
     const code = matchUnit(c[1]);
     if (!code || ans === null) { skipped.push(c[1] + ' / ' + c[2]); return; }
-    out.push({ code, q: c[2], ans, exp: c[4] || '' });
+    out.push({ code, q: c[2], ans, exp: c[4] || '', sid: hashId(c[2]) });
   });
   return { out, skipped };
 }
@@ -641,14 +681,14 @@ function showOxWelcome() {
 }
 
 window.startOx = function (scope, items) {
-  currentUnit = scope === 'all' ? null : scope;
+  currentUnit = scope === 'all' ? null : scope === 'wrong' ? '__wrong' : scope;
   if (!items) {
-    items = OX.filter(x => scope === 'all' || x.code === scope);
+    items = scope === 'wrong' ? oxWrongItems() : OX.filter(x => scope === 'all' || x.code === scope);
     if (ox.random) items = shuffle([...items]);
   }
   ox = { ...ox, scope, items, idx: 0, right: 0, wrong: [], answered: null };
   const u = unitByCode[scope];
-  setHeader(u ? u.title : 'OX 퀴즈 · 전체', `OX 퀴즈 · ${items.length}문장`);
+  setHeader(u ? u.title : scope === 'wrong' ? '틀린 문장 다시 풀기' : 'OX 퀴즈 · 전체', `OX 퀴즈 · ${items.length}문장`);
   renderSidebar(); renderOx(); closeSidebarMobile();
   $('scroll-area').scrollTo({ top: 0 });
 };
@@ -661,6 +701,11 @@ window.answerOx = function (choice) {
   if (!it || ox.answered !== null) return;
   ox.answered = choice;
   if (choice === it.ans) ox.right++; else ox.wrong.push(it);
+  if (user) {   // 틀리면 '틀린 문장'에 넣고, 맞히면 뺌
+    if (choice === it.ans) oxWrongSet.delete(it.sid); else oxWrongSet.add(it.sid);
+    queueOp({ t: 'ox', sid: it.sid, text: it.q, correct: choice === it.ans });
+    renderSidebar();
+  }
   renderOx();
 };
 window.nextOx = function () {
@@ -675,7 +720,7 @@ window.retryOx = function (onlyWrong) {
 function renderOx() {
   const n = ox.items.length;
   if (!n) {
-    content.innerHTML = `<div class="bg-white p-10 rounded-2xl border border-slate-200 text-center text-slate-500">이 소단원에는 아직 OX 문장이 없어요.</div>`;
+    content.innerHTML = `<div class="bg-white p-10 rounded-2xl border border-slate-200 text-center text-slate-500">${ox.scope === 'wrong' ? '틀린 문장이 없어요. 👍' : '이 소단원에는 아직 OX 문장이 없어요.'}</div>`;
     return;
   }
   const seg = (on, color) => on ? `bg-white shadow-sm font-bold" style="color:${color}` : 'text-slate-500 hover:text-slate-700';
@@ -724,7 +769,7 @@ function renderOx() {
   };
   content.innerHTML = bar + `
     <article class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 md:p-8 fade-in">
-      ${ox.scope === 'all' ? `<p class="text-xs font-bold mb-3" style="color:var(--accent)">${unitByCode[it.code].title}</p>` : ''}
+      ${ox.scope === 'all' || ox.scope === 'wrong' ? `<p class="text-xs font-bold mb-3" style="color:var(--accent)">${unitByCode[it.code].title}</p>` : ''}
       <p class="text-lg md:text-xl font-bold text-slate-800 leading-relaxed break-keep">${it.q}</p>
       <div class="grid grid-cols-2 gap-3 mt-6">
         ${oxBtn(true, 'O', 'border-blue-200 text-blue-500 hover:bg-blue-50')}
@@ -742,6 +787,178 @@ function renderOx() {
     </article>`;
 }
 
+/* ================= 로그인 · 기록 연동 ================= */
+let user = null;                 // { id, pw, name }
+let starSet = new Set();         // 체크한 문제 key
+let oxWrongSet = new Set();      // 틀린 OX 문장 ID
+let pendingOps = [], inFlight = 0, syncTimer = null, syncState = 'saved', lastLoad = 0;
+const qIndex = {};
+const LS_USER = `sj_user_${SUBJECT}`;                        // 과목(시트)마다 따로 로그인
+const LS_DATA = `sj_data_${SUBJECT}`, LS_OPS = `sj_ops_${SUBJECT}`;
+const lsGet = k => { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } };
+const lsSet = (k, v) => { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, JSON.stringify(v)); } catch {} };
+
+function hashId(text) {   // 문장 → 짧은 ID (FNV-1a)
+  let h = 0x811c9dc5;
+  for (const ch of squash(text)) { h ^= ch.codePointAt(0); h = Math.imul(h, 0x01000193) >>> 0; }
+  return 'ox' + h.toString(36);
+}
+const starredIn = cat => UNITS.flatMap(u => catQuestions(cat, u.code)).filter(q => starSet.has(q.key));
+const oxWrongItems = () => OX.filter(x => oxWrongSet.has(x.sid));
+
+async function api(action, extra = {}, keepalive = false) {
+  const res = await fetch(API_URL, {
+    method: 'POST', keepalive,
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },   // 구글 서버와 통신할 때 필요한 형식
+    body: JSON.stringify({ action, subject: SUBJECT, id: user.id, pw: user.pw, ...extra }),
+  });
+  return res.json();
+}
+
+function applyState(r) {
+  starSet = new Set(r.checks || []); oxWrongSet = new Set(r.oxWrong || []);
+  // 아직 서버에 안 간 기록은 화면에 반영해 둠
+  pendingOps.forEach(o => {
+    if (o.t === 'check') o.on ? starSet.add(o.key) : starSet.delete(o.key);
+    if (o.t === 'ox') o.correct ? oxWrongSet.delete(o.sid) : oxWrongSet.add(o.sid);
+  });
+  lsSet(LS_DATA, { id: user.id, checks: [...starSet], oxWrong: [...oxWrongSet] });
+  lastLoad = Date.now();
+}
+
+function showLogin(msg = '') {
+  $('login').classList.remove('hidden');
+  $('login-err').innerText = msg;
+  const saved = lsGet(LS_USER);
+  $('login-id').value = saved ? saved.id : '';
+  $('login-pw').value = '';
+  setTimeout(() => $(saved ? 'login-pw' : 'login-id').focus(), 50);
+}
+window.doLogin = async function () {
+  const id = $('login-id').value.trim(), pw = $('login-pw').value.trim();
+  if (!id || !pw) { $('login-err').innerText = '학번과 비밀번호를 모두 입력해 주세요.'; return; }
+  const btn = $('login-btn'); btn.disabled = true; btn.innerText = '확인 중…'; $('login-err').innerText = '';
+  user = { id, pw };
+  try {
+    const r = await api('login');
+    if (!r.ok) throw new Error(r.error || '로그인에 실패했어요.');
+    user.name = r.name; lsSet(LS_USER, user);
+    const ops = lsGet(LS_OPS);
+    pendingOps = ops && ops.id === id ? ops.list : [];
+    applyState(r);
+    $('login').classList.add('hidden');
+    showWelcome();
+    if (pendingOps.length) scheduleFlush();
+  } catch (e) {
+    user = null;
+    $('login-err').innerText = e.message.includes('fetch') ? '서버에 연결하지 못했어요. 인터넷 연결을 확인해 주세요.' : e.message;
+  } finally { btn.disabled = false; btn.innerText = '로그인'; }
+};
+window.doLogout = async function () {
+  if (pendingOps.length) {
+    await flushOps();
+    if (pendingOps.length && !confirm('아직 저장되지 않은 기록이 있어요. 그래도 로그아웃할까요?')) return;
+  }
+  lsSet(LS_USER, null); lsSet(LS_DATA, null); lsSet(LS_OPS, null);
+  user = null; starSet = new Set(); oxWrongSet = new Set(); pendingOps = [];
+  renderUserBox(); showWelcome(); showLogin();
+};
+
+function forceLogout(msg) {   // 명단에서 빠졌거나 비밀번호가 바뀐 경우
+  lsSet(LS_USER, null); lsSet(LS_DATA, null); lsSet(LS_OPS, null);
+  user = null; starSet = new Set(); oxWrongSet = new Set(); pendingOps = [];
+  renderUserBox(); showWelcome(); showLogin(msg);
+}
+
+/* 기록은 모아서 1.5초 뒤에 한꺼번에 저장 */
+function queueOp(op) {
+  if (op.t === 'check') {   // 같은 문제를 여러 번 누르면 마지막 것만
+    const i = pendingOps.findIndex((o, k) => k >= inFlight && o.t === 'check' && o.key === op.key);
+    if (i >= 0) pendingOps.splice(i, 1);
+  }
+  pendingOps.push(op);
+  lsSet(LS_OPS, { id: user.id, list: pendingOps });
+  setSync('saving'); scheduleFlush();
+}
+function scheduleFlush(ms = 1500) { clearTimeout(syncTimer); syncTimer = setTimeout(flushOps, ms); }
+async function flushOps(keepalive = false) {
+  if (!user || !API_URL || !pendingOps.length || inFlight) return;
+  const batch = pendingOps.slice(); inFlight = batch.length; setSync('saving');
+  try {
+    const r = await api('sync', { ops: batch }, keepalive);
+    if (!r.ok) { if (r.code === 'auth') { inFlight = 0; return forceLogout(r.error); } throw new Error(r.error); }
+    pendingOps = pendingOps.slice(batch.length);
+    lsSet(LS_OPS, { id: user.id, list: pendingOps });
+    lsSet(LS_DATA, { id: user.id, checks: [...starSet], oxWrong: [...oxWrongSet] });
+    setSync(pendingOps.length ? 'saving' : 'saved');
+  } catch (e) {
+    setSync('error'); inFlight = 0; scheduleFlush(10000); return;
+  }
+  inFlight = 0;
+  if (pendingOps.length) scheduleFlush(300);
+}
+function setSync(state) { syncState = state; renderUserBox(); }
+function renderUserBox() {
+  const box = $('user-box');
+  if (!user) { box.classList.add('hidden'); return; }
+  box.classList.remove('hidden');
+  const st = { saving: '<span class="text-slate-400">저장 중…</span>', saved: '<span class="text-emerald-600">저장됨</span>', error: '<span class="text-red-500">저장 실패 · 다시 시도 중</span>' }[syncState];
+  box.innerHTML = `<div class="flex items-center gap-2">
+      <div class="flex-1 min-w-0"><b class="text-slate-800">${user.name || user.id}</b> <span class="text-slate-400 text-xs">${user.id}</span><div class="text-xs mt-0.5">${st}</div></div>
+      <button onclick="doLogout()" class="flex-shrink-0 px-2.5 py-1 rounded-lg border border-slate-200 text-xs font-bold text-slate-500 hover:bg-slate-50">로그아웃</button>
+    </div>`;
+}
+
+window.toggleStar = function (id) {
+  const q = qIndex[id]; if (!q || !user) return;
+  const on = !starSet.has(q.key);
+  on ? starSet.add(q.key) : starSet.delete(q.key);
+  const btn = $(`star-${id}`);
+  if (btn) { btn.innerText = on ? '★' : '☆'; btn.classList.toggle('text-amber-400', on); btn.classList.toggle('text-slate-300', !on); }
+  const book = bookById[q.bookId];
+  queueOp({ t: 'check', key: q.key, on, label: `${CATEGORIES[book.category].title} · ${book.short} ${q.number}번 · ${unitByCode[q.code].title}` });
+  renderSidebar();
+};
+window.selectStarred = function () {
+  currentUnit = '__star';
+  list = starredIn(currentCat); page = 1; isRandom = false;
+  setHeader('⭐ 체크한 문제', `${CATEGORIES[currentCat].title} · ${list.length}문제`);
+  renderSidebar(); renderPage(); closeSidebarMobile();
+  $('scroll-area').scrollTo({ top: 0 });
+};
+
+async function startSession() {
+  if (!API_URL) return;                    // 주소가 없으면 로그인 없이 사용
+  const saved = lsGet(LS_USER);
+  if (!saved || !saved.pw) return showLogin();
+  user = saved;
+  const ops = lsGet(LS_OPS), data = lsGet(LS_DATA);
+  pendingOps = ops && ops.id === user.id ? ops.list : [];
+  if (data && data.id === user.id) { starSet = new Set(data.checks); oxWrongSet = new Set(data.oxWrong); }
+  renderUserBox(); renderSidebar();
+  refreshState();
+  if (pendingOps.length) scheduleFlush(500);
+}
+async function refreshState() {   // 다른 기기에서 한 기록 불러오기
+  if (!user || inFlight) return;
+  try {
+    const r = await api('load');
+    if (!r.ok) { if (r.code === 'auth') forceLogout(r.error); return; }
+    user.name = r.name; lsSet(LS_USER, user);
+    applyState(r); renderUserBox(); renderSidebar();
+    Object.values(qIndex).forEach(q => {
+      const b = $(`star-${q.id}`); if (!b) return;
+      const on = starSet.has(q.key);
+      b.innerText = on ? '★' : '☆'; b.classList.toggle('text-amber-400', on); b.classList.toggle('text-slate-300', !on);
+    });
+  } catch (e) { /* 오프라인이면 저장된 기록으로 계속 */ }
+}
+document.addEventListener('visibilitychange', () => {
+  if (!user) return;
+  if (document.visibilityState === 'hidden') flushOps(true);
+  else if (Date.now() - lastLoad > 60000 && !pendingOps.length) refreshState();
+});
+
 /* ---------------- 문제 목록 불러오기 ----------------
    manifest.json은 '문제목록 만들기.bat'을 더블클릭하면 만들어져요. (이미지를 추가할 때마다 다시 실행)
    형식: { "practice/book1": { "1-1-1": [1, 2, 5], ... }, ... }                    */
@@ -757,6 +974,7 @@ async function init() {
       Object.keys(units).forEach(code => { db[b.id][code] = [...units[code]].sort((x, y) => x - y); });
     });
     showWelcome();
+    startSession();
   } catch (e) {
     showWelcome();
     showModal(location.protocol === 'file:'
