@@ -127,9 +127,11 @@
    ① 큰 카테고리
    ============================================================ */
 const CATEGORIES = {
-  practice: { title: '문제풀기',  icon: '📖', color: '#0f766e', soft: '#e6f4f1' },
-  past:     { title: '기출 문제', icon: '🗂️', color: '#1d4ed8', soft: '#e8eefc' },
-  ox:       { title: 'OX 퀴즈',  icon: '⭕', color: '#7c3aed', soft: '#f1ecfe' },
+  // tab: 사이드바 탭에 보이는 짧은 이름 (탭이 5개라 짧게)
+  practice: { title: '문제풀기',   tab: '문제풀기', icon: '📖', color: '#0f766e', soft: '#e6f4f1' },
+  past:     { title: '기출 문제',  tab: '기출',     icon: '🗂️', color: '#1d4ed8', soft: '#e8eefc' },
+  fill:     { title: '빈칸채우기', tab: '빈칸',     icon: '✍️', color: '#0369a1', soft: '#e0f2fe' },
+  ox:       { title: 'OX 퀴즈',   tab: 'OX',       icon: '⭕', color: '#7c3aed', soft: '#f1ecfe' },
 };
 
 /* ============================================================
@@ -207,11 +209,14 @@ CURRICULUM.forEach((big, bi) => big.groups.forEach(g => g.units.forEach(u => UNI
 const unitByCode = Object.fromEntries(UNITS.map(u => [u.code, u]));
 const bookById = Object.fromEntries(BOOKS.map(b => [b.id, b]));
 const booksIn = cat => BOOKS.filter(b => b.category === cat);
-const qPath = (bookId, code, n) => `${bookById[bookId].dir}/${code}/${n}번_문제.png`;
-const aPath = (bookId, code, n) => `${bookById[bookId].dir}/${code}/${n}번_해설.png`;
+// 파일 이름 뒤에 _상/_중/_하 를 붙이면 난이도로 인식 (예: 17번_문제_상.png, 17번_해설_상.png)
+const qPath = (bookId, code, n, diff) => `${bookById[bookId].dir}/${code}/${n}번_문제${diff ? '_' + diff : ''}.png`;
+const aPath = (bookId, code, n, diff) => `${bookById[bookId].dir}/${code}/${n}번_해설${diff ? '_' + diff : ''}.png`;
 
-const db = {};   // db[bookId][소단원코드] = [문제 번호들]  (manifest.json에서 읽어옴)
-BOOKS.forEach(b => { db[b.id] = {}; });
+const db = {};     // db[bookId][소단원코드] = [문제 번호들]  (manifest.json에서 읽어옴)
+const diffDb = {}; // diffDb[bookId][소단원코드][번호] = '상'|'중'|'하'|null
+BOOKS.forEach(b => { db[b.id] = {}; diffDb[b.id] = {}; });
+const DIFF_LABEL = { '상': { t: '고급', c: '#dc2626' }, '중': { t: '중급', c: '#a16207' }, '하': { t: '저급', c: '#15803d' } };
 
 const fallbackImg = text => 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(
   `<svg xmlns="http://www.w3.org/2000/svg" width="800" height="260"><rect width="100%" height="100%" fill="#f1f5f9"/><text x="50%" y="50%" text-anchor="middle" dominant-baseline="middle" font-family="sans-serif" font-size="22" fill="#94a3b8">${text}</text></svg>`);
@@ -223,6 +228,7 @@ let currentUnit = null;
 let list = [], page = 1, isRandom = false;
 let isLocked = false;
 let mockPicked = [];
+let expandedGroups = new Set();   // 사이드바에서 펼쳐 놓은 중단원 키 ('대단원번호-중단원번호')
 
 const $ = id => document.getElementById(id);
 const content = $('content');
@@ -230,10 +236,14 @@ const isMock = () => currentCat === 'mock';
 
 function getQuestions(bookId, code) {
   // key: 시트에 저장되는 문제 이름 (예: practice/book1/1-1-2/17)
-  return (db[bookId][code] || []).map(n => ({ id: `${bookId}__${n}`, key: `${bookById[bookId].dir}/${code}/${n}`, bookId, code, number: n }));
+  const diffs = diffDb[bookId][code] || {};
+  return (db[bookId][code] || []).map(n => ({ id: `${bookId}__${n}`, key: `${bookById[bookId].dir}/${code}/${n}`, bookId, code, number: n, diff: diffs[n] || null }));
 }
 const bookOrder = Object.fromEntries(BOOKS.map((b, i) => [b.id, i]));
-const byBookThenNumber = (a, b) => (bookOrder[a.bookId] - bookOrder[b.bookId]) || (a.number - b.number);
+const unitOrder = Object.fromEntries(UNITS.map((u, i) => [u.code, i]));
+const byBookThenNumber = (a, b) => (unitOrder[a.code] - unitOrder[b.code]) || (bookOrder[a.bookId] - bookOrder[b.bookId]) || (a.number - b.number);
+const DIFF_ORDER = { '하': 0, '중': 1, '상': 2 };   // '순서대로'는 난이도(저급→중급→고급) 먼저, 같은 난이도끼리는 원래 순서
+const byDifficulty = (a, b) => (DIFF_ORDER[a.diff || '중'] - DIFF_ORDER[b.diff || '중']) || byBookThenNumber(a, b);
 // 카테고리 안 모든 교재의 해당 소단원 문제를 합쳐서
 const catQuestions = (cat, code) => booksIn(cat).flatMap(b => getQuestions(b.id, code));
 const countOf = (cat, code) => catQuestions(cat, code).length;
@@ -268,14 +278,14 @@ function closeModal(force = false) { if (!isLocked || force) { isLocked = false;
 /* ---------------- 사이드바 ---------------- */
 function renderSidebar() {
   // 카테고리 탭
-  const tabs = Object.entries(CATEGORIES).filter(([k]) => k === 'ox' || booksIn(k).length)
-    .map(([k, c]) => ({ k, label: c.title, icon: c.icon, color: c.color }))
+  const tabs = Object.entries(CATEGORIES).filter(([k]) => k === 'ox' || k === 'fill' || booksIn(k).length)
+    .map(([k, c]) => ({ k, label: c.tab || c.title, icon: c.icon, color: c.color }))
     .concat({ k: 'mock', label: '모의고사', icon: '📝', color: 'var(--mock)' });
   const catTabs = $('cat-tabs');
   catTabs.style.gridTemplateColumns = `repeat(${tabs.length}, minmax(0, 1fr))`;
   catTabs.innerHTML = tabs.map(t => {
     const on = currentCat === t.k;
-    return `<button onclick="changeCategory('${t.k}')" class="py-2 rounded-lg text-xs font-bold leading-tight transition-colors ${on ? 'bg-white shadow-sm' : 'text-slate-500 hover:text-slate-700'}" ${on ? `style="color:${t.color}"` : ''}>
+    return `<button onclick="changeCategory('${t.k}')" class="py-2 rounded-lg text-[11px] font-bold leading-tight whitespace-nowrap transition-colors ${on ? 'bg-white shadow-sm' : 'text-slate-500 hover:text-slate-700'}" ${on ? `style="color:${t.color}"` : ''}>
       <span class="block text-base mb-0.5">${t.icon}</span>${t.label}</button>`;
   }).join('');
 
@@ -284,29 +294,67 @@ function renderSidebar() {
     $('unit-nav').innerHTML = `<p class="px-2 text-sm text-slate-500 leading-relaxed">오른쪽 화면에서 출제 범위를 골라 모의고사를 만들어 보세요.</p>`;
     return;
   }
-  // 로그인했을 때만: 체크한 문제 / 틀린 OX 모음
+  // 로그인했을 때만: 체크한 문제 / 틀린 문장 / 오답 노트 모음
   let collect = '';
   if (user) {
-    const isOx = currentCat === 'ox';
-    const n = isOx ? oxWrongItems().length : starredIn(currentCat).length;
-    const key = isOx ? '__wrong' : '__star', active = currentUnit === key;
-    collect = `<button onclick="${isOx ? "startOx('wrong')" : 'selectStarred()'}" class="w-full flex items-center gap-2 text-left px-3 py-2.5 mb-4 rounded-xl border text-[13px] font-bold transition-colors ${active ? '' : 'border-slate-200 text-slate-700 hover:bg-slate-50'}" ${active ? 'style="background:var(--accent-soft);color:var(--accent);border-color:transparent"' : ''}>
-      <span class="flex-1">${isOx ? '❌ 틀린 문장' : '⭐ 체크한 문제'}</span><span class="text-[11px] tabular-nums ${n ? 'text-slate-500' : 'text-slate-300'}">${n}</span></button>`;
+    const isOx = currentCat === 'ox', isFill = currentCat === 'fill';
+    const n = isOx ? oxWrongItems().length : isFill ? fillWrongItems().length : starredIn(currentCat).length;
+    const key = (isOx || isFill) ? '__wrong' : '__star', active = currentUnit === key;
+    const label = isOx ? '❌ 틀린 문장' : isFill ? '❌ 오답 노트' : '⭐ 체크한 문제';
+    const action = isOx ? "startOx('wrong')" : isFill ? "startFill('wrong')" : 'selectStarred()';
+    collect = `<button onclick="${action}" class="w-full flex items-center gap-2 text-left px-3 py-2.5 mb-4 rounded-xl border text-[13px] font-bold transition-colors ${active ? '' : 'border-slate-200 text-slate-700 hover:bg-slate-50'}" ${active ? 'style="background:var(--accent-soft);color:var(--accent);border-color:transparent"' : ''}>
+      <span class="flex-1">${label}</span><span class="text-[11px] tabular-nums ${n ? 'text-slate-500' : 'text-slate-300'}">${n}</span></button>`;
   }
-  $('unit-nav').innerHTML = collect + CURRICULUM.map(big => `
+  const unitN = code => currentCat === 'ox' ? oxCount(code) : currentCat === 'fill' ? fillCount(code) : countOf(currentCat, code);
+  const unitBtn = (u, indent) => {
+    const n = unitN(u.code), active = currentUnit === u.code;
+    return `<button onclick="selectUnit('${u.code}')" class="w-full flex items-center gap-2 text-left ${indent ? 'pl-9' : 'pl-3'} pr-3 py-2 rounded-lg text-[13px] transition-colors ${active ? 'font-bold' : 'text-slate-600 hover:bg-slate-50'}" ${active ? 'style="background:var(--accent-soft);color:var(--accent)"' : ''}>
+      <span class="flex-1 leading-snug">${u.title}</span>
+      <span class="flex-shrink-0 text-[11px] tabular-nums ${n ? 'text-slate-500' : 'text-slate-300'}">${n}</span>
+    </button>`;
+  };
+  $('unit-nav').innerHTML = collect + CURRICULUM.map((big, bi) => `
     <div class="mb-5">
       <div class="px-2 mb-1 text-[13px] font-black text-slate-800">${big.title}</div>
-      ${big.groups.map(g => `
-        ${g.title ? `<div class="px-2 mt-2.5 mb-1 text-xs font-bold text-slate-400">${g.title}</div>` : ''}
-        ${g.units.map(u => {
-          const n = currentCat === 'ox' ? oxCount(u.code) : countOf(currentCat, u.code), active = currentUnit === u.code;
-          return `<button onclick="selectUnit('${u.code}')" class="w-full flex items-center gap-2 text-left px-3 py-2 rounded-lg text-[13px] transition-colors ${active ? 'font-bold' : 'text-slate-600 hover:bg-slate-50'}" ${active ? 'style="background:var(--accent-soft);color:var(--accent)"' : ''}>
-            <span class="flex-1 leading-snug">${u.title}</span>
-            <span class="flex-shrink-0 text-[11px] tabular-nums ${n ? 'text-slate-500' : 'text-slate-300'}">${n}</span>
-          </button>`;
-        }).join('')}
-      `).join('')}
+      ${big.groups.map((g, gi) => {
+        if (!g.title) return g.units.map(u => unitBtn(u, false)).join('');
+        // 중단원: ▶ 를 누르면 접기/펼치기, 이름을 누르면 그 아래 소단원 문제를 모두 모아 풀기
+        const key = `${bi}-${gi}`, open = expandedGroups.has(key), gActive = currentUnit === 'grp:' + key;
+        const total = g.units.reduce((sum, u) => sum + unitN(u.code), 0);
+        return `
+          <div onclick="selectGroup(${bi}, ${gi})" class="relative w-full flex items-center gap-2 text-left pl-9 pr-3 py-2 rounded-lg text-[13px] font-bold cursor-pointer ${gActive ? '' : 'text-slate-700 hover:bg-slate-50'}" ${gActive ? 'style="background:var(--accent-soft);color:var(--accent)"' : ''}>
+            <button onclick="event.stopPropagation(); toggleGroup('${key}')" aria-label="${open ? '접기' : '펼치기'}" class="absolute left-1 top-1/2 -translate-y-1/2 w-7 h-7 flex items-center justify-center text-slate-400 text-[10px] transition-transform ${open ? 'rotate-90' : ''}">▶</button>
+            <span class="flex-1 leading-snug">${g.title}</span>
+            <span class="flex-shrink-0 text-[11px] tabular-nums ${total ? 'text-slate-500' : 'text-slate-300'}">${total}</span>
+          </div>
+          ${open ? g.units.map(u => unitBtn(u, true)).join('') : ''}`;
+      }).join('')}
     </div>`).join('');
+}
+window.toggleGroup = function (key) {
+  expandedGroups.has(key) ? expandedGroups.delete(key) : expandedGroups.add(key);
+  renderSidebar();
+};
+function groupOf_(scope) {   // 'grp:bi-gi' → 그 중단원 객체
+  const [bi, gi] = scope.slice(4).split('-').map(Number);
+  return CURRICULUM[bi].groups[gi];
+}
+const isGrp = scope => typeof scope === 'string' && scope.startsWith('grp:');
+// 중단원 이름을 누르면: 펼치고 + 그 아래 소단원 문제를 전부 합쳐서 바로 풀기
+window.selectGroup = function (bi, gi) {
+  expandedGroups.add(`${bi}-${gi}`);
+  const g = CURRICULUM[bi].groups[gi], scope = `grp:${bi}-${gi}`;
+  if (currentCat === 'ox') return startOx(scope);
+  if (currentCat === 'fill') return startFill(scope);
+  currentUnit = scope;
+  list = g.units.flatMap(u => catQuestions(currentCat, u.code)).sort(byDifficulty); page = 1; isRandom = false;
+  setHeader(g.title, `${CATEGORIES[currentCat].title} · ${list.length}문제`);
+  renderSidebar(); renderPage(); closeSidebarMobile();
+  $('scroll-area').scrollTo({ top: 0 });
+};
+// 소단원을 고르면 그 중단원을 펼쳐 둠
+function expandFor(code) {
+  CURRICULUM.forEach((big, bi) => big.groups.forEach((g, gi) => { if (g.title && g.units.some(u => u.code === code)) expandedGroups.add(`${bi}-${gi}`); }));
 }
 
 window.changeCategory = function (cat) {
@@ -318,6 +366,7 @@ window.changeCategory = function (cat) {
 function showWelcome() {
   currentUnit = null; renderSidebar();
   if (currentCat === 'ox') return showOxWelcome();
+  if (currentCat === 'fill') return showFillWelcome();
   const cat = CATEGORIES[currentCat], total = catTotal(currentCat);
   setHeader(cat.title, '왼쪽 메뉴에서 소단원을 누르면 문제가 나와요.');
   content.innerHTML = `
@@ -333,10 +382,12 @@ function showWelcome() {
 
 /* ---------------- 단원 학습 ---------------- */
 window.selectUnit = function (code) {
+  expandFor(code);
   if (currentCat === 'ox') return startOx(code);
+  if (currentCat === 'fill') return startFill(code);
   currentUnit = code;
   const u = unitByCode[code];
-  list = catQuestions(currentCat, code); page = 1; isRandom = false;
+  list = catQuestions(currentCat, code).sort(byDifficulty); page = 1; isRandom = false;
   setHeader(u.title, `${CATEGORIES[currentCat].title} · ${[u.big, u.group].filter(Boolean).join(' / ')} · ${list.length}문제`);
   renderSidebar(); renderPage(); closeSidebarMobile();
   $('scroll-area').scrollTo({ top: 0 });
@@ -344,7 +395,7 @@ window.selectUnit = function (code) {
 
 window.setSort = function (mode) {
   isRandom = mode === 'random'; page = 1;
-  if (isRandom) shuffle(list); else list.sort(byBookThenNumber);
+  if (isRandom) shuffle(list); else list.sort(byDifficulty);
   renderPage();
 };
 window.changePage = function (d) {
@@ -390,10 +441,12 @@ function showMockIntro() {
         <input type="checkbox" checked id="big-${bi}" onchange="toggleBig(${bi}, this.checked)" class="w-4 h-4 accent-amber-700">${big.title}
       </label>
       <div class="pl-6 space-y-1">
-        ${big.groups.map(g => `
-          ${g.title ? `<div class="text-xs font-bold text-slate-400 pt-1.5">${g.title}</div>` : ''}
-          ${g.units.map(u => `<label class="flex items-center gap-2 text-sm text-slate-600 cursor-pointer py-0.5">
-            <input type="checkbox" checked name="mock-unit" value="${u.code}" data-big="${bi}" onchange="syncBig(${bi})" class="w-4 h-4 accent-amber-700">
+        ${big.groups.map((g, gi) => `
+          ${g.title ? `<label class="flex items-center gap-2 text-sm font-bold text-slate-700 pt-2 cursor-pointer">
+            <input type="checkbox" checked id="grp-${bi}-${gi}" onchange="toggleGroup2(${bi}, ${gi}, this.checked)" class="w-3.5 h-3.5 accent-amber-700">
+            <span>${g.title}</span></label>` : ''}
+          ${g.units.map(u => `<label class="flex items-center gap-2 text-[13px] text-slate-500 cursor-pointer py-0.5 ${g.title ? 'ml-3' : ''}">
+            <input type="checkbox" checked name="mock-unit" value="${u.code}" data-big="${bi}" data-grp="${gi}" onchange="${g.title ? `syncGroup2(${bi}, ${gi})` : `syncBig(${bi})`}" class="w-4 h-4 accent-amber-700">
             <span class="flex-1">${u.title}</span></label>`).join('')}
         `).join('')}
       </div>
@@ -408,6 +461,17 @@ function showMockIntro() {
       <fieldset class="mb-6">
         <legend class="font-bold text-slate-700 mb-3">출제 범위</legend>
         <div class="grid gap-3 md:grid-cols-3">${treeHtml}</div>
+      </fieldset>
+      <fieldset class="mb-6">
+        <legend class="font-bold text-slate-700 mb-3">난이도 <span class="font-normal text-sm text-slate-400">(파일 이름에 _상/_중/_하 표시가 없으면 '중'으로 계산돼요)</span></legend>
+        <div class="grid gap-3 grid-cols-3">
+          <label class="flex items-center gap-2 bg-white rounded-xl border border-slate-200 px-3 sm:px-4 py-3 cursor-pointer">
+            <input type="checkbox" name="mock-diff" value="하" checked class="w-4 h-4 accent-amber-700"><span class="font-bold text-sm sm:text-base" style="color:#15803d">저급</span></label>
+          <label class="flex items-center gap-2 bg-white rounded-xl border border-slate-200 px-3 sm:px-4 py-3 cursor-pointer">
+            <input type="checkbox" name="mock-diff" value="중" checked class="w-4 h-4 accent-amber-700"><span class="font-bold text-sm sm:text-base" style="color:#a16207">중급</span></label>
+          <label class="flex items-center gap-2 bg-white rounded-xl border border-slate-200 px-3 sm:px-4 py-3 cursor-pointer">
+            <input type="checkbox" name="mock-diff" value="상" checked class="w-4 h-4 accent-amber-700"><span class="font-bold text-sm sm:text-base" style="color:#dc2626">고급</span></label>
+        </div>
       </fieldset>
       <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
         <label class="flex items-center gap-2 text-sm font-bold text-slate-700">문제 수
@@ -424,6 +488,17 @@ function showMockIntro() {
 
 window.toggleBig = function (bi, on) {
   document.querySelectorAll(`input[name="mock-unit"][data-big="${bi}"]`).forEach(cb => cb.checked = on);
+  document.querySelectorAll(`input[id^="grp-${bi}-"]`).forEach(cb => { cb.checked = on; cb.indeterminate = false; });
+};
+window.toggleGroup2 = function (bi, gi, on) {
+  document.querySelectorAll(`input[name="mock-unit"][data-big="${bi}"][data-grp="${gi}"]`).forEach(cb => cb.checked = on);
+  syncBig(bi);
+};
+window.syncGroup2 = function (bi, gi) {
+  const kids = [...document.querySelectorAll(`input[name="mock-unit"][data-big="${bi}"][data-grp="${gi}"]`)];
+  const n = kids.filter(k => k.checked).length, grp = $(`grp-${bi}-${gi}`);
+  if (grp) { grp.checked = n === kids.length; grp.indeterminate = n > 0 && n < kids.length; }
+  syncBig(bi);
 };
 window.syncBig = function (bi) {
   const kids = [...document.querySelectorAll(`input[name="mock-unit"][data-big="${bi}"]`)];
@@ -434,16 +509,18 @@ window.syncBig = function (bi) {
 window.startMock = function () {
   const cats = [...document.querySelectorAll('input[name="mock-cat"]:checked')].map(c => c.value);
   const units = [...document.querySelectorAll('input[name="mock-unit"]:checked')].map(c => c.value);
+  const diffs = [...document.querySelectorAll('input[name="mock-diff"]:checked')].map(c => c.value);
   const want = Number($('mock-count').value);
+  if (!diffs.length) return showModal('난이도를 하나 이상 골라주세요.');
   if (!cats.length) return showModal('문제풀기와 기출 문제 중 하나 이상 골라주세요.');
   if (!units.length) return showModal('출제 범위를 하나 이상 골라주세요.');
 
-  const pool = [];
+  let pool = [];
   cats.forEach(cat => units.forEach(code => pool.push(...catQuestions(cat, code))));
+  if (diffs.length < 3) pool = pool.filter(q => diffs.includes(q.diff || '중'));
   if (!pool.length) return showModal('고른 범위에 등록된 문제가 없어요.');
 
   // 무작위로 뽑은 뒤, 시험지처럼 단원 순서대로 정렬
-  const unitOrder = Object.fromEntries(UNITS.map((u, i) => [u.code, i]));
   mockPicked = shuffle(pool).slice(0, want).sort((a, b) => unitOrder[a.code] - unitOrder[b.code]);
   renderMockResult(pool.length < want);
   renderPrintSheet();
@@ -472,7 +549,7 @@ function renderMockResult(short) {
             <figcaption class="flex justify-between items-center mb-1.5 text-xs">
               <b class="text-slate-800 flex-shrink-0">${i + 1}번</b><span class="text-slate-400 truncate ml-2 min-w-0">${unitByCode[q.code].title}</span>
             </figcaption>
-            <img src="${qPath(q.bookId, q.code, q.number)}" alt="${i + 1}번 문제" loading="lazy" class="w-full h-28 object-contain object-top bg-white rounded" onerror="this.onerror=null;this.src=FALLBACK_Q">
+            <img src="${qPath(q.bookId, q.code, q.number, q.diff)}" alt="${i + 1}번 문제" loading="lazy" class="w-full h-28 object-contain object-top bg-white rounded" onerror="this.onerror=null;this.src=FALLBACK_Q">
           </figure>`).join('')}
       </div>
     </div>`;
@@ -485,11 +562,11 @@ function renderPrintSheet() {
   $('print-sheet').innerHTML = `
     <div id="print-q">
       ${head(`${SUBJECT} 모의고사`, '이름 ______________')}
-      ${mockPicked.map((q, i) => `<section class="sheet-item"><div class="sheet-num">${i + 1}.</div><img src="${qPath(q.bookId, q.code, q.number)}" alt="" onerror="this.onerror=null;this.src=FALLBACK_Q"></section>`).join('')}
+      ${mockPicked.map((q, i) => `<section class="sheet-item"><div class="sheet-num">${i + 1}.</div><img src="${qPath(q.bookId, q.code, q.number, q.diff)}" alt="" onerror="this.onerror=null;this.src=FALLBACK_Q"></section>`).join('')}
     </div>
     <div id="print-a">
       ${head(`${SUBJECT} 모의고사 해설`, '')}
-      ${mockPicked.map((q, i) => `<section class="sheet-item"><div class="sheet-num">${i + 1}번 해설</div><img data-src="${aPath(q.bookId, q.code, q.number)}" alt=""></section>`).join('')}
+      ${mockPicked.map((q, i) => `<section class="sheet-item"><div class="sheet-num">${i + 1}번 해설</div><img data-src="${aPath(q.bookId, q.code, q.number, q.diff)}" alt=""></section>`).join('')}
     </div>`;
 }
 
@@ -525,16 +602,17 @@ function renderCards(questions, target, mock, offset = 0) {
   questions.forEach(q => { qIndex[q.id] = q; });
   target.innerHTML = questions.map((q, i) => {
     const u = unitByCode[q.code], book = bookById[q.bookId], cat = CATEGORIES[book.category];
-    const label = `${offset + i + 1}번`;
-    // 모의고사에서만 어느 단원 문제인지 표시
-    const badges = mock ? `<span class="px-2 py-1 rounded text-[11px] font-bold bg-slate-100 text-slate-600">${u.title}</span>` : '';
+    const dl = DIFF_LABEL[q.diff] || DIFF_LABEL['중'];   // 난이도 표시가 없는 문제는 '중급'
+    const label = `난이도: ${dl.t}`;
+    // 모의고사이거나 중단원 전체를 모아 볼 때만 어느 소단원 문제인지 표시
+    const badges = (mock || isGrp(currentUnit)) ? `<span class="px-2 py-1 rounded text-[11px] font-bold bg-slate-100 text-slate-600">${u.title}</span>` : '';
     const pen = (mode, color, cls, name) =>
       `<button onclick="setTool('${q.id}','${mode}','${color}',this)" data-tool="${q.id}" aria-label="${name}" class="${cls} ${color === '#111827' ? 'tool-active' : ''}"></button>`;
     return `
     <article class="q-card bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden fade-in">
       <div class="p-4 md:p-7">
         <div class="flex items-center justify-between gap-3 mb-4">
-          <h3 class="text-xl font-black text-slate-800 flex items-center gap-1.5">${label}${!mock && user ? `<button onclick="toggleStar('${q.id}')" id="star-${q.id}" aria-label="체크" title="체크해 두면 '체크한 문제'에서 모아 볼 수 있어요" class="w-9 h-9 -my-1 flex items-center justify-center rounded-lg text-2xl leading-none hover:bg-slate-50 ${starSet.has(q.key) ? 'text-amber-400' : 'text-slate-300'}">${starSet.has(q.key) ? '★' : '☆'}</button>` : ''}</h3>
+          <h3 class="text-[11px] font-bold flex items-center gap-1.5" style="color:${dl.c}">${label}${!mock && user ? `<button onclick="toggleStar('${q.id}')" id="star-${q.id}" aria-label="체크" title="체크해 두면 '체크한 문제'에서 모아 볼 수 있어요" class="w-9 h-9 -my-1 flex items-center justify-center rounded-lg text-2xl leading-none hover:bg-slate-50 ${starSet.has(q.key) ? 'text-amber-400' : 'text-slate-300'}">${starSet.has(q.key) ? '★' : '☆'}</button>` : ''}</h3>
           <div class="flex gap-1.5 flex-wrap justify-end">${badges}</div>
         </div>
 
@@ -552,7 +630,7 @@ function renderCards(questions, target, mock, offset = 0) {
 
         <div class="question-image-section border border-slate-100 rounded-xl p-3 bg-slate-50 flex justify-center">
           <div class="relative inline-block max-w-full">
-            <img id="img-${q.id}" src="${qPath(q.bookId, q.code, q.number)}" alt="${label} 문제" class="max-w-full h-auto rounded-lg select-none" draggable="false"
+            <img id="img-${q.id}" src="${qPath(q.bookId, q.code, q.number, q.diff)}" alt="${label} 문제" class="max-w-full h-auto rounded-lg select-none" draggable="false"
                  onload="setupCanvas('${q.id}')" onerror="this.onerror=null;this.src=FALLBACK_Q">
             <canvas id="cv-${q.id}" class="absolute inset-0 w-full h-full rounded-lg" style="pointer-events:none;touch-action:pinch-zoom"></canvas>
           </div>
@@ -566,7 +644,7 @@ function renderCards(questions, target, mock, offset = 0) {
       </div>
       <div id="ans-${q.id}" class="answer-section hidden border-t-2 border-dashed border-slate-200 bg-slate-50 p-5 md:p-7">
         <div class="border border-slate-200 rounded-xl p-3 bg-white flex justify-center">
-          <img src="${aPath(q.bookId, q.code, q.number)}" loading="lazy" alt="${label} 해설" class="max-w-full h-auto rounded-lg" onerror="this.onerror=null;this.src=FALLBACK_A">
+          <img src="${aPath(q.bookId, q.code, q.number, q.diff)}" loading="lazy" alt="${label} 해설" class="max-w-full h-auto rounded-lg" onerror="this.onerror=null;this.src=FALLBACK_A">
         </div>
       </div>
     </article>`;
@@ -585,7 +663,7 @@ window.toggleAnswer = function (id) {
 /* ---------------- 필기 (페이지를 넘겨도 유지) ---------------- */
 const ink = {}, pens = {};
 const PEN_WIDTH = { normal: 2.5, thin: 1.2 };   // 펜 굵기 2단계
-let penSize = 'normal';
+let penSize = 'thin';                             // 처음엔 가는 펜 (마지막으로 고른 굵기가 다음 문제에도 이어짐)
 let penSeen = false;                              // 펜(스타일러스)을 쓴 적이 있는지                           // 마지막으로 고른 굵기 (다음 문제에도 이어짐)
 const sizeIcon = size => `<svg width="14" height="14" viewBox="0 0 14 14"><line x1="2" y1="12" x2="12" y2="2" stroke="currentColor" stroke-linecap="round" stroke-width="${size === 'thin' ? 1.2 : 3}"/></svg>`;
 window.toggleSize = function (id, el) {
@@ -734,12 +812,14 @@ function showOxWelcome() {
 window.startOx = function (scope, items) {
   currentUnit = scope === 'all' ? null : scope === 'wrong' ? '__wrong' : scope;
   if (!items) {
-    items = scope === 'wrong' ? oxWrongItems() : OX.filter(x => scope === 'all' || x.code === scope);
+    items = scope === 'wrong' ? oxWrongItems()
+      : isGrp(scope) ? OX.filter(x => groupOf_(scope).units.some(u => u.code === x.code))
+      : OX.filter(x => scope === 'all' || x.code === scope);
     if (ox.random) items = shuffle([...items]);
   }
   ox = { ...ox, scope, items, idx: 0, right: 0, wrong: [], answered: null };
   const u = unitByCode[scope];
-  setHeader(u ? u.title : scope === 'wrong' ? '틀린 문장 다시 풀기' : 'OX 퀴즈 · 전체', `OX 퀴즈 · ${items.length}문장`);
+  setHeader(u ? u.title : scope === 'wrong' ? '틀린 문장 다시 풀기' : isGrp(scope) ? groupOf_(scope).title : 'OX 퀴즈 · 전체', `OX 퀴즈 · ${items.length}문장`);
   renderSidebar(); renderOx(); closeSidebarMobile();
   $('scroll-area').scrollTo({ top: 0 });
 };
@@ -820,7 +900,7 @@ function renderOx() {
   };
   content.innerHTML = bar + `
     <article class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 md:p-8 fade-in">
-      ${ox.scope === 'all' || ox.scope === 'wrong' ? `<p class="text-xs font-bold mb-3" style="color:var(--accent)">${unitByCode[it.code].title}</p>` : ''}
+      ${ox.scope === 'all' || ox.scope === 'wrong' || isGrp(ox.scope) ? `<p class="text-xs font-bold mb-3" style="color:var(--accent)">${unitByCode[it.code].title}</p>` : ''}
       <p class="text-lg md:text-xl font-bold text-slate-800 leading-relaxed break-keep">${it.q}</p>
       <div class="grid grid-cols-2 gap-3 mt-6">
         ${oxBtn(true, 'O', 'border-blue-200 text-blue-500 hover:bg-blue-50')}
@@ -834,6 +914,205 @@ function renderOx() {
       <div class="flex items-center justify-between gap-2 border-t border-slate-100 mt-5 pt-4">
         <span class="text-sm text-slate-500">맞힘 <b class="text-emerald-600">${ox.right}</b> · 틀림 <b class="text-red-500">${ox.wrong.length}</b></span>
         <button onclick="nextOx()" ${done ? '' : 'disabled'} class="${BTN} text-white border-transparent" style="background:var(--accent)">${ox.idx + 1 >= n ? '결과 보기' : '다음 ▶'}</button>
+      </div>
+    </article>`;
+}
+
+/* ================= 빈칸채우기 =================
+   fill.txt (탭으로 구분)  대단원 | 소단원 | 문장(빈칸은 [[정답]] 으로 표시) | 해설
+   - 한 문장에 [[ ]] 빈칸을 여러 개 넣을 수 있어요. 다 채우고 '정답 확인'을 눌러야 채점돼요.
+   - [[정답1/정답2]] 처럼 '/' 로 여러 개 적으면 그중 하나만 맞아도 정답이에요.
+   - 채점은 관대하게: 띄어쓰기·대소문자 무시, 긴 단어는 오타 한두 글자까지 봐줘요.
+   - 틀린 기록은 OX와 같은 시트 탭(OX기록)에 함께 저장돼요.                       */
+let FILL = [], fillSkipped = [];
+function parseFill(text) {
+  const out = [], skipped = [];
+  const unq = c => { c = c.trim(); return (c.startsWith('"') && c.endsWith('"')) ? c.slice(1, -1).replace(/""/g, '"') : c; };
+  text.split(/\r?\n/).forEach(line => {
+    const c = line.split('\t').map(unq);
+    if (c.length < 3 || !c[2] || c[2] === '문장') return;
+    const code = matchUnit(c[1]), raw = c[2];
+    const parts = [], answers = [];
+    let last = 0, m;
+    const re = /\[\[([^\]]+)\]\]/g;
+    while ((m = re.exec(raw))) {
+      parts.push(raw.slice(last, m.index));
+      answers.push(m[1].split('/').map(t => t.trim()).filter(Boolean));
+      last = re.lastIndex;
+    }
+    parts.push(raw.slice(last));
+    if (!code || !answers.length) { skipped.push((c[1] || '') + ' / ' + raw); return; }
+    out.push({ code, parts, answers, exp: c[3] || '', sid: hashId('FILL::' + raw) });
+  });
+  return { out, skipped };
+}
+async function loadFill() {
+  try {
+    const r = await fetch('fill.txt', { cache: 'no-store' });
+    if (!r.ok) return;
+    const { out, skipped } = parseFill(decodeText(await r.arrayBuffer()));
+    FILL = out; fillSkipped = skipped;
+    if (skipped.length) console.warn('빈칸채우기: 단원을 찾지 못했거나 빈칸([[ ]])이 없는 줄', skipped);
+  } catch (e) { console.warn('fill.txt 파일을 읽지 못했어요', e); }
+}
+const fillCount = code => FILL.filter(x => x.code === code).length;
+const fillWrongItems = () => FILL.filter(x => oxWrongSet.has(x.sid));
+
+function levenshtein(a, b) {   // 두 글자 사이의 차이(오타 개수)
+  const m = a.length, n = b.length;
+  if (!m) return n; if (!n) return m;
+  let prev = Array.from({ length: n + 1 }, (_, i) => i);
+  for (let i = 1; i <= m; i++) {
+    const cur = [i];
+    for (let j = 1; j <= n; j++) cur[j] = a[i - 1] === b[j - 1] ? prev[j - 1] : 1 + Math.min(prev[j - 1], prev[j], cur[j - 1]);
+    prev = cur;
+  }
+  return prev[n];
+}
+function fillMatch(input, answers) {
+  const norm = t => squash(t).toLowerCase();
+  const a = norm(input);
+  if (!a) return false;
+  return answers.some(ans => {
+    const b = norm(ans);
+    if (a === b) return true;
+    const thresh = b.length <= 2 ? 0 : b.length <= 4 ? 1 : b.length <= 8 ? 2 : 3;
+    return levenshtein(a, b) <= thresh;
+  });
+}
+
+let fill = { scope: null, items: [], idx: 0, right: 0, wrong: [], answered: null, typed: [], random: false };
+
+function showFillWelcome() {
+  setHeader('빈칸채우기', '왼쪽 메뉴에서 소단원을 누르면 문장이 나와요.');
+  content.innerHTML = `
+    <div class="fade-in text-center pt-16 md:pt-24">
+      <p class="text-5xl mb-5">✍️</p>
+      <h3 class="text-2xl font-black text-slate-800 mb-2">빈칸채우기</h3>
+      <p class="text-slate-500">${FILL.length ? `총 ${FILL.length}문장이 준비되어 있어요.` : '아직 문장이 없어요. fill.txt 파일을 올려 주세요.'}</p>
+      ${fillSkipped.length ? `<p class="text-xs text-amber-700 mt-2">단원을 찾지 못했거나 빈칸([[ ]])이 없는 문장 ${fillSkipped.length}개는 빠졌어요.</p>` : ''}
+      <button onclick="openSidebar()" class="mt-6 px-6 py-3 rounded-xl text-white font-bold shadow-sm" style="background:var(--accent)">단원 선택하기</button>
+      <p class="mt-8 mx-auto max-w-sm text-sm text-slate-500 bg-white border border-slate-200 rounded-xl px-4 py-3 leading-relaxed">
+        빈칸에 들어갈 말을 입력하고 <b class="text-slate-700">정답 확인</b>을 누르세요. 띄어쓰기나 사소한 오타는 정답으로 봐줘요.${user ? '<br>틀린 문장은 <b class="text-slate-700">❌ 오답 노트</b>에 모여요.' : ''}</p>
+    </div>`;
+}
+
+window.startFill = function (scope, items) {
+  currentUnit = scope === 'all' ? null : scope === 'wrong' ? '__wrong' : scope;
+  if (!items) {
+    items = scope === 'wrong' ? fillWrongItems()
+      : isGrp(scope) ? FILL.filter(x => groupOf_(scope).units.some(u => u.code === x.code))
+      : FILL.filter(x => scope === 'all' || x.code === scope);
+    if (fill.random) items = shuffle([...items]);
+  }
+  fill = { ...fill, scope, items, idx: 0, right: 0, wrong: [], answered: null, typed: [] };
+  const u = unitByCode[scope];
+  setHeader(u ? u.title : scope === 'wrong' ? '오답 노트 다시 풀기' : isGrp(scope) ? groupOf_(scope).title : '빈칸채우기 · 전체', `빈칸채우기 · ${items.length}문장`);
+  renderSidebar(); renderFill(); closeSidebarMobile();
+  $('scroll-area').scrollTo({ top: 0 });
+};
+window.setFillSort = function (mode) { fill.random = mode === 'random'; startFill(fill.scope); };
+window.focusFillBlank = function (i, total) {   // 빈칸에서 Enter → 다음 빈칸, 마지막이면 채점
+  const el = $('fill-input-' + (i + 1));
+  if (i + 1 < total && el) el.focus(); else submitFill();
+};
+window.submitFill = function () {
+  const it = fill.items[fill.idx];
+  if (!it || fill.answered !== null) return;
+  const inputs = it.answers.map((_, i) => { const el = $('fill-input-' + i); return el ? el.value : (fill.typed[i] || ''); });
+  fill.typed = inputs;
+  const results = it.answers.map((alts, i) => fillMatch(inputs[i], alts));
+  const correct = results.every(Boolean);
+  fill.answered = { inputs, results, correct };
+  if (correct) fill.right++; else fill.wrong.push(it);
+  if (user) {
+    if (correct) oxWrongSet.delete(it.sid); else oxWrongSet.add(it.sid);
+    queueOp({ t: 'ox', sid: it.sid, text: '[빈칸] ' + fillPlain(it), correct });
+    renderSidebar();
+  }
+  renderFill();
+};
+window.nextFill = function () {
+  if (fill.answered === null) return;
+  fill.idx++; fill.answered = null; fill.typed = [];
+  renderFill(); $('scroll-area').scrollTo({ top: 0, behavior: 'smooth' });
+};
+window.retryFill = function (onlyWrong) { startFill(fill.scope, onlyWrong ? shuffle([...fill.wrong]) : undefined); };
+
+const fillPlain = it => it.parts.map((p, i) => p + (i < it.answers.length ? `[${it.answers[i][0]}]` : '')).join('');
+function fillFullSentence(it) {   // 결과 화면용: 정답을 채운 완성 문장
+  let out = '';
+  it.parts.forEach((p, i) => { out += p; if (i < it.answers.length) out += `<b class="text-sky-700">[ ${it.answers[i][0]} ]</b>`; });
+  return out;
+}
+
+function renderFill() {
+  const n = fill.items.length;
+  if (!n) {
+    content.innerHTML = `<div class="bg-white p-10 rounded-2xl border border-slate-200 text-center text-slate-500">${fill.scope === 'wrong' ? '오답 노트가 비어 있어요. 👍' : '이 소단원에는 아직 빈칸채우기 문장이 없어요.'}</div>`;
+    return;
+  }
+  const seg = (on, color) => on ? `bg-white shadow-sm font-bold" style="color:${color}` : 'text-slate-500 hover:text-slate-700';
+  const bar = `
+    <div class="flex justify-between items-center gap-2 bg-white p-2 md:p-3 rounded-2xl border border-slate-200 mb-4 md:mb-6">
+      <div class="flex bg-slate-100 p-1 rounded-xl">
+        <button onclick="setFillSort('seq')" class="px-3 md:px-4 py-1.5 md:py-2 text-xs md:text-sm rounded-lg whitespace-nowrap ${seg(!fill.random, 'var(--accent)')}">순서대로</button>
+        <button onclick="setFillSort('random')" class="px-3 md:px-4 py-1.5 md:py-2 text-xs md:text-sm rounded-lg whitespace-nowrap ${seg(fill.random, 'var(--mock)')}">랜덤으로</button>
+      </div>
+      <div class="text-sm font-bold tabular-nums pr-2">${Math.min(fill.idx + 1, n)} <span class="text-slate-400 font-normal">/ ${n}</span></div>
+    </div>
+    <div class="h-1.5 bg-slate-200 rounded-full mb-5 overflow-hidden"><div class="h-full rounded-full transition-all" style="width:${fill.idx / n * 100}%;background:var(--accent)"></div></div>`;
+
+  // 결과 화면
+  if (fill.idx >= n) {
+    const pct = Math.round(fill.right / n * 100);
+    content.innerHTML = bar + `
+      <div class="bg-white rounded-2xl border border-slate-200 p-6 md:p-8 fade-in text-center">
+        <p class="text-5xl mb-3">${pct >= 90 ? '🏆' : pct >= 70 ? '👍' : '💪'}</p>
+        <h3 class="text-2xl font-black text-slate-800">${n}문장 중 ${fill.right}개 맞혔어요</h3>
+        <p class="text-slate-500 mt-1">정답률 ${pct}%</p>
+        <div class="flex justify-center flex-wrap gap-2 mt-6">
+          ${fill.wrong.length ? `<button onclick="retryFill(true)" class="${BTN} text-white border-transparent" style="background:var(--accent)">틀린 문장만 다시</button>` : ''}
+          <button onclick="retryFill(false)" class="${BTN} bg-white border-slate-200 text-slate-600">처음부터 다시</button>
+        </div>
+      </div>
+      ${fill.wrong.length ? `<h4 class="font-bold text-slate-700 mt-8 mb-3">틀린 문장 ${fill.wrong.length}개</h4>
+      <div class="space-y-3">${fill.wrong.map(w => `
+        <div class="bg-white rounded-xl border border-slate-200 p-4">
+          <p class="font-medium text-slate-800 leading-relaxed">${fillFullSentence(w)}</p>
+          ${w.exp ? `<p class="text-sm text-slate-500 mt-2">${w.exp}</p>` : ''}
+        </div>`).join('')}</div>` : ''}`;
+    return;
+  }
+
+  // 문제 화면
+  const it = fill.items[fill.idx], done = fill.answered !== null, nb = it.answers.length;
+  const blankHtml = i => {
+    if (!done) {
+      const val = (fill.typed[i] || '').replace(/"/g, '&quot;');
+      return `<input id="fill-input-${i}" type="text" value="${val}" autocomplete="off" onkeydown="if(event.key==='Enter'){event.preventDefault();focusFillBlank(${i},${nb})}" class="inline-block w-20 md:w-28 mx-1 px-1.5 py-0.5 border-b-2 border-slate-400 text-center align-baseline text-base md:text-lg focus:outline-none focus:border-slate-700 bg-transparent">`;
+    }
+    const ok = fill.answered.results[i], shown = fill.answered.inputs[i] || '(빈칸)';
+    return ok
+      ? `<span class="inline-block mx-1 px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 font-bold border-b-2 border-emerald-400">${shown}</span>`
+      : `<span class="inline-block mx-1 px-1.5 py-0.5 rounded bg-red-50 text-red-600 font-bold border-b-2 border-red-400">${it.answers[i][0]}</span>`;
+  };
+  let sentenceHtml = '';
+  it.parts.forEach((p, i) => { sentenceHtml += p; if (i < nb) sentenceHtml += blankHtml(i); });
+  content.innerHTML = bar + `
+    <article class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 md:p-8 fade-in">
+      ${fill.scope === 'all' || fill.scope === 'wrong' || isGrp(fill.scope) ? `<p class="text-xs font-bold mb-3" style="color:var(--accent)">${unitByCode[it.code].title}</p>` : ''}
+      <p class="text-lg md:text-xl font-bold text-slate-800 leading-loose">${sentenceHtml}</p>
+      ${done ? `
+      <div class="mt-5 rounded-xl p-4 fade-in ${fill.answered.correct ? 'bg-emerald-50' : 'bg-red-50'}">
+        <p class="font-black ${fill.answered.correct ? 'text-emerald-700' : 'text-red-600'}">${fill.answered.correct ? '정답이에요!' : (nb > 1 ? '아쉬워요, 빨간 칸의 정답을 확인하세요.' : `아쉬워요, 정답은 "${it.answers[0][0]}"예요`)}</p>
+        ${it.exp ? `<p class="text-sm text-slate-600 mt-1.5 leading-relaxed">${it.exp}</p>` : ''}
+      </div>` : ''}
+      <div class="flex items-center justify-between gap-2 border-t border-slate-100 mt-5 pt-4">
+        <span class="text-sm text-slate-500">맞힘 <b class="text-emerald-600">${fill.right}</b> · 틀림 <b class="text-red-500">${fill.wrong.length}</b></span>
+        ${done
+          ? `<button onclick="nextFill()" class="${BTN} text-white border-transparent" style="background:var(--accent)">${fill.idx + 1 >= n ? '결과 보기' : '다음 ▶'}</button>`
+          : `<button onclick="submitFill()" class="${BTN} text-white border-transparent" style="background:var(--accent)">정답 확인</button>`}
       </div>
     </article>`;
 }
@@ -1026,17 +1305,24 @@ document.addEventListener('visibilitychange', () => {
 
 /* ---------------- 문제 목록 불러오기 ----------------
    manifest.json은 '문제목록 만들기.bat'을 더블클릭하면 만들어져요. (이미지를 추가할 때마다 다시 실행)
-   형식: { "practice/book1": { "1-1-1": [1, 2, 5], ... }, ... }                    */
+   형식: { "practice/book1": { "1-1-1": {"1": null, "2": "상"}, ... }, ... }  (null = 난이도 표시 없음 → 중급)                    */
 async function init() {
   setAccent(currentCat);
-  await loadOx();
+  await Promise.all([loadOx(), loadFill()]);
   try {
     const res = await fetch('manifest.json', { cache: 'no-store' });
     if (!res.ok) throw new Error(res.status);
     const manifest = await res.json();
     BOOKS.forEach(b => {
       const units = manifest[b.dir] || {};
-      Object.keys(units).forEach(code => { db[b.id][code] = [...units[code]].sort((x, y) => x - y); });
+      Object.keys(units).forEach(code => {
+        const u = units[code];
+        if (Array.isArray(u)) {   // 예전 형식: [1, 2, 5]
+          db[b.id][code] = [...u].sort((x, y) => x - y); diffDb[b.id][code] = {};
+        } else {                  // 새 형식: {"1": null, "2": "상"}
+          db[b.id][code] = Object.keys(u).map(Number).sort((x, y) => x - y); diffDb[b.id][code] = u;
+        }
+      });
     });
     showWelcome();
     startSession();
@@ -1049,6 +1335,10 @@ async function init() {
 }
 document.addEventListener('keydown', e => {
   if (e.target.closest('input, select, textarea')) return;
+  if (currentCat === 'fill') {   // 채점한 뒤 Enter·→ 로 다음 문장
+    if (e.key === 'Enter' || e.key === 'ArrowRight') nextFill();
+    return;
+  }
   if (currentCat === 'ox') {   // O / X 키로 답하고, Enter·→ 로 다음 (한글 입력 상태 ㅐ/ㅌ도 인식)
     const k = e.key.toLowerCase();
     if (k === 'o' || k === 'ㅐ') answerOx(true);
