@@ -226,6 +226,8 @@ const FALLBACK_A = fallbackImg('해설 이미지를 찾을 수 없어요');
 let currentCat = Object.keys(CATEGORIES).find(c => booksIn(c).length);  // 'practice' | 'past' | 'mock'
 let currentUnit = null;
 let list = [], page = 1, isRandom = false;
+let lastPage = {};   // 카테고리+단원별 마지막에 보던 페이지 (같은 단원에 다시 들어가면 이어서)
+const resumePage = scope => { const n = Math.max(1, Math.ceil(list.length / PER_PAGE)), r = lastPage[currentCat + '|' + scope]; return (r && r < n) ? r : 1; };
 let isLocked = false;
 let mockPicked = [];
 let expandedGroups = new Set();   // 사이드바에서 펼쳐 놓은 중단원 키 ('대단원번호-중단원번호')
@@ -347,7 +349,8 @@ window.selectGroup = function (bi, gi) {
   if (currentCat === 'ox') return startOx(scope);
   if (currentCat === 'fill') return startFill(scope);
   currentUnit = scope;
-  list = g.units.flatMap(u => catQuestions(currentCat, u.code)).sort(byDifficulty); page = 1; isRandom = false;
+  list = g.units.flatMap(u => catQuestions(currentCat, u.code)).sort(byDifficulty); isRandom = false;
+  page = resumePage(scope);
   setHeader(g.title, `${CATEGORIES[currentCat].title} · ${list.length}문제`);
   renderSidebar(); renderPage(); closeSidebarMobile();
   $('scroll-area').scrollTo({ top: 0 });
@@ -387,7 +390,8 @@ window.selectUnit = function (code) {
   if (currentCat === 'fill') return startFill(code);
   currentUnit = code;
   const u = unitByCode[code];
-  list = catQuestions(currentCat, code).sort(byDifficulty); page = 1; isRandom = false;
+  list = catQuestions(currentCat, code).sort(byDifficulty); isRandom = false;
+  page = resumePage(code);   // 마지막까지 다 봤으면 처음부터, 아니면 이어서
   setHeader(u.title, `${CATEGORIES[currentCat].title} · ${[u.big, u.group].filter(Boolean).join(' / ')} · ${list.length}문제`);
   renderSidebar(); renderPage(); closeSidebarMobile();
   $('scroll-area').scrollTo({ top: 0 });
@@ -400,7 +404,10 @@ window.setSort = function (mode) {
 };
 window.changePage = function (d) {
   const pages = Math.max(1, Math.ceil(list.length / PER_PAGE));
-  page = Math.min(pages, Math.max(1, page + d));
+  page = page + d;
+  if (page > pages) page = 1;   // 마지막에서 다음 → 처음으로
+  if (page < 1) page = pages;   // 처음에서 이전 → 마지막으로
+  if (currentUnit) lastPage[currentCat + '|' + currentUnit] = page;
   renderPage(); $('scroll-area').scrollTo({ top: 0, behavior: 'smooth' });
 };
 
@@ -441,7 +448,7 @@ function showMockIntro() {
 
   const catsHtml = Object.entries(CATEGORIES).filter(([k]) => booksIn(k).length).map(([k, c]) => `
     <label class="flex items-center gap-3 bg-white rounded-xl border border-slate-200 px-4 py-3 cursor-pointer">
-      <input type="checkbox" name="mock-cat" value="${k}" checked class="w-4 h-4 accent-amber-700">
+      <input type="checkbox" name="mock-cat" value="${k}" class="w-4 h-4 accent-amber-700">
       <span class="font-bold" style="color:${c.color}">${c.icon} ${c.title}</span>
       <span class="ml-auto text-xs text-slate-400 tabular-nums">${catTotal(k)}문제</span>
     </label>`).join('');
@@ -449,15 +456,15 @@ function showMockIntro() {
   const treeHtml = CURRICULUM.map((big, bi) => `
     <div class="bg-white rounded-xl border border-slate-200 p-4">
       <label class="flex items-center gap-2 font-bold text-slate-800 cursor-pointer mb-2">
-        <input type="checkbox" checked id="big-${bi}" onchange="toggleBig(${bi}, this.checked)" class="w-4 h-4 accent-amber-700">${big.title}
+        <input type="checkbox" id="big-${bi}" onchange="toggleBig(${bi}, this.checked)" class="w-4 h-4 accent-amber-700">${big.title}
       </label>
       <div class="pl-6 space-y-1">
         ${big.groups.map((g, gi) => `
           ${g.title ? `<label class="flex items-center gap-2 text-sm font-bold text-slate-700 pt-2 cursor-pointer">
-            <input type="checkbox" checked id="grp-${bi}-${gi}" onchange="toggleGroup2(${bi}, ${gi}, this.checked)" class="w-3.5 h-3.5 accent-amber-700">
+            <input type="checkbox" id="grp-${bi}-${gi}" onchange="toggleGroup2(${bi}, ${gi}, this.checked)" class="w-3.5 h-3.5 accent-amber-700">
             <span>${g.title}</span></label>` : ''}
           ${g.units.map(u => `<label class="flex items-center gap-2 text-[13px] text-slate-500 cursor-pointer py-0.5 ${g.title ? 'ml-3' : ''}">
-            <input type="checkbox" checked name="mock-unit" value="${u.code}" data-big="${bi}" data-grp="${gi}" onchange="${g.title ? `syncGroup2(${bi}, ${gi})` : `syncBig(${bi})`}" class="w-4 h-4 accent-amber-700">
+            <input type="checkbox" name="mock-unit" value="${u.code}" data-big="${bi}" data-grp="${gi}" onchange="${g.title ? `syncGroup2(${bi}, ${gi})` : `syncBig(${bi})`}" class="w-4 h-4 accent-amber-700">
             <span class="flex-1">${u.title}</span></label>`).join('')}
         `).join('')}
       </div>
@@ -477,11 +484,11 @@ function showMockIntro() {
         <legend class="font-bold text-slate-700 mb-3">난이도 <span class="font-normal text-sm text-slate-400">(파일 이름에 _상/_중/_하 표시가 없으면 '중'으로 계산돼요)</span></legend>
         <div class="grid gap-3 grid-cols-3">
           <label class="flex items-center gap-2 bg-white rounded-xl border border-slate-200 px-3 sm:px-4 py-3 cursor-pointer">
-            <input type="checkbox" name="mock-diff" value="하" checked class="w-4 h-4 accent-amber-700"><span class="font-bold text-sm sm:text-base" style="color:#15803d">저급</span></label>
+            <input type="checkbox" name="mock-diff" value="하" class="w-4 h-4 accent-amber-700"><span class="font-bold text-sm sm:text-base" style="color:#15803d">저급</span></label>
           <label class="flex items-center gap-2 bg-white rounded-xl border border-slate-200 px-3 sm:px-4 py-3 cursor-pointer">
-            <input type="checkbox" name="mock-diff" value="중" checked class="w-4 h-4 accent-amber-700"><span class="font-bold text-sm sm:text-base" style="color:#a16207">중급</span></label>
+            <input type="checkbox" name="mock-diff" value="중" class="w-4 h-4 accent-amber-700"><span class="font-bold text-sm sm:text-base" style="color:#a16207">중급</span></label>
           <label class="flex items-center gap-2 bg-white rounded-xl border border-slate-200 px-3 sm:px-4 py-3 cursor-pointer">
-            <input type="checkbox" name="mock-diff" value="상" checked class="w-4 h-4 accent-amber-700"><span class="font-bold text-sm sm:text-base" style="color:#dc2626">고급</span></label>
+            <input type="checkbox" name="mock-diff" value="상" class="w-4 h-4 accent-amber-700"><span class="font-bold text-sm sm:text-base" style="color:#dc2626">고급</span></label>
         </div>
       </fieldset>
       <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
@@ -816,29 +823,79 @@ const oxCount = code => OX.filter(x => x.code === code).length;
 
 let ox = { scope: null, items: [], idx: 0, right: 0, wrong: [], answered: null, random: false };
 
-function showOxWelcome() {
-  setHeader('OX 퀴즈', '왼쪽 메뉴에서 소단원을 누르면 문장이 나와요.');
-  content.innerHTML = `
-    <div class="fade-in text-center pt-16 md:pt-24">
-      <p class="text-5xl mb-5">⭕</p>
-      <h3 class="text-2xl font-black text-slate-800 mb-2">OX 퀴즈</h3>
-      <p class="text-slate-500">${OX.length ? `총 ${OX.length}문장이 준비되어 있어요.` : '아직 문장이 없어요. ox.txt 파일을 올려 주세요.'}</p>
-      ${oxSkipped.length ? `<p class="text-xs text-amber-700 mt-2">단원을 찾지 못한 문장 ${oxSkipped.length}개는 빠졌어요.</p>` : ''}
-      <button onclick="openSidebar()" class="mt-6 px-6 py-3 rounded-xl text-white font-bold shadow-sm" style="background:var(--accent)">단원 선택하기</button>
+/* 대단원/중단원 2단계 체크박스 (OX·빈칸채우기 범위 고르기) — 중단원이 있으면 중단원 통째로,
+   없으면(III단원처럼) 소단원 하나하나가 한 줄 */
+function midTreeHtml(countFn) {
+  return CURRICULUM.map((big, bi) => {
+    const rows = big.groups.map(g => {
+      if (g.title) {
+        const codes = g.units.map(u => u.code), n = codes.reduce((s, c) => s + countFn(c), 0);
+        return `<label class="flex items-center gap-2 text-[13px] font-medium text-slate-600 cursor-pointer py-1">
+          <input type="checkbox" name="mid-unit" data-big="${bi}" data-codes="${codes.join(',')}" onchange="syncMidBig(${bi})" class="w-4 h-4 accent-amber-700">
+          <span class="flex-1">${g.title}</span><span class="text-[11px] text-slate-400 tabular-nums">${n}</span></label>`;
+      }
+      return g.units.map(u => `<label class="flex items-center gap-2 text-[13px] font-medium text-slate-600 cursor-pointer py-1">
+        <input type="checkbox" name="mid-unit" data-big="${bi}" data-codes="${u.code}" onchange="syncMidBig(${bi})" class="w-4 h-4 accent-amber-700">
+        <span class="flex-1">${u.title}</span><span class="text-[11px] text-slate-400 tabular-nums">${countFn(u.code)}</span></label>`).join('');
+    }).join('');
+    return `<div class="bg-white rounded-xl border border-slate-200 p-4">
+      <label class="flex items-center gap-2 font-bold text-slate-800 cursor-pointer mb-2">
+        <input type="checkbox" id="midbig-${bi}" onchange="toggleMidBig(${bi}, this.checked)" class="w-4 h-4 accent-amber-700">${big.title}
+      </label>
+      <div class="pl-6 space-y-1">${rows}</div>
     </div>`;
+  }).join('');
 }
+window.toggleMidBig = function (bi, on) {
+  document.querySelectorAll(`input[name="mid-unit"][data-big="${bi}"]`).forEach(cb => cb.checked = on);
+};
+window.syncMidBig = function (bi) {
+  const kids = [...document.querySelectorAll(`input[name="mid-unit"][data-big="${bi}"]`)];
+  const n = kids.filter(k => k.checked).length, big = $(`midbig-${bi}`);
+  if (big) { big.checked = n === kids.length; big.indeterminate = n > 0 && n < kids.length; }
+};
+const midSelectedCodes = () => [...document.querySelectorAll('input[name="mid-unit"]:checked')].flatMap(c => c.dataset.codes.split(','));
+const isSel = scope => typeof scope === 'string' && scope.startsWith('sel:');
+const rangeBox = (countFn, action) => `
+    <div class="no-print bg-slate-100/70 rounded-3xl border border-slate-200 p-5 md:p-8 fade-in">
+      <fieldset class="mb-6">
+        <legend class="font-bold text-slate-700 mb-3">풀 범위 고르기</legend>
+        <div class="grid gap-3 md:grid-cols-3">${midTreeHtml(countFn)}</div>
+      </fieldset>
+      <div class="flex justify-end">
+        <button onclick="${action}()" class="px-7 py-3 rounded-xl text-white font-bold shadow-sm" style="background:var(--accent)">고른 범위로 시작</button>
+      </div>
+    </div>`;
+
+function showOxWelcome() {
+  setHeader('OX 퀴즈', '범위를 고르고 시작하거나, 왼쪽 메뉴에서 소단원을 눌러도 돼요.');
+  content.innerHTML = `
+    <div class="fade-in text-center pt-8 pb-2">
+      <p class="text-5xl mb-4">⭕</p>
+      <h3 class="text-2xl font-black text-slate-800 mb-2">OX 퀴즈</h3>
+      ${OX.length ? '' : '<p class="text-slate-500">아직 문장이 없어요. ox.txt 파일을 올려 주세요.</p>'}
+      <p class="text-slate-400 text-sm mt-2">❌ 틀린 문장은 저장돼서 사이드바의 '틀린 문장'에서 다시 풀어 볼 수 있어요.</p>
+      ${oxSkipped.length ? `<p class="text-xs text-amber-700 mt-2">단원을 찾지 못한 문장 ${oxSkipped.length}개는 빠졌어요.</p>` : ''}
+    </div>` + rangeBox(oxCount, 'startOxRange');
+}
+window.startOxRange = function () {
+  const codes = midSelectedCodes();
+  if (!codes.length) return showModal('범위를 하나 이상 골라주세요.');
+  startOx('sel:' + codes.join(','));
+};
 
 window.startOx = function (scope, items) {
   currentUnit = scope === 'all' ? null : scope === 'wrong' ? '__wrong' : scope;
   if (!items) {
     items = scope === 'wrong' ? oxWrongItems()
       : isGrp(scope) ? OX.filter(x => groupOf_(scope).units.some(u => u.code === x.code))
+      : isSel(scope) ? OX.filter(x => scope.slice(4).split(',').includes(x.code))
       : OX.filter(x => scope === 'all' || x.code === scope);
     if (ox.random) items = shuffle([...items]);
   }
   ox = { ...ox, scope, items, idx: 0, right: 0, wrong: [], answered: null };
   const u = unitByCode[scope];
-  setHeader(u ? u.title : scope === 'wrong' ? '틀린 문장 다시 풀기' : isGrp(scope) ? groupOf_(scope).title : 'OX 퀴즈 · 전체', `OX 퀴즈 · ${items.length}문장`);
+  setHeader(u ? u.title : scope === 'wrong' ? '틀린 문장 다시 풀기' : isGrp(scope) ? groupOf_(scope).title : isSel(scope) ? '고른 범위 · OX 퀴즈' : 'OX 퀴즈 · 전체', `OX 퀴즈 · ${items.length}문장`);
   renderSidebar(); renderOx(); closeSidebarMobile();
   $('scroll-area').scrollTo({ top: 0 });
 };
@@ -919,7 +976,7 @@ function renderOx() {
   };
   content.innerHTML = bar + `
     <article class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 md:p-8 fade-in">
-      ${ox.scope === 'all' || ox.scope === 'wrong' || isGrp(ox.scope) ? `<p class="text-xs font-bold mb-3" style="color:var(--accent)">${unitByCode[it.code].title}</p>` : ''}
+      ${ox.scope === 'all' || ox.scope === 'wrong' || isGrp(ox.scope) || isSel(ox.scope) ? `<p class="text-xs font-bold mb-3" style="color:var(--accent)">${unitByCode[it.code].title}</p>` : ''}
       <p class="text-lg md:text-xl font-bold text-slate-800 leading-relaxed break-keep">${it.q}</p>
       <div class="grid grid-cols-2 gap-3 mt-6">
         ${oxBtn(true, 'O', 'border-blue-200 text-blue-500 hover:bg-blue-50')}
@@ -1003,30 +1060,35 @@ function fillMatch(input, answers) {
 let fill = { scope: null, items: [], idx: 0, right: 0, wrong: [], answered: null, typed: [], random: false };
 
 function showFillWelcome() {
-  setHeader('빈칸채우기', '왼쪽 메뉴에서 소단원을 누르면 문장이 나와요.');
+  setHeader('빈칸채우기', '범위를 고르고 시작하거나, 왼쪽 메뉴에서 소단원을 눌러도 돼요.');
   content.innerHTML = `
-    <div class="fade-in text-center pt-16 md:pt-24">
-      <p class="text-5xl mb-5">✍️</p>
+    <div class="fade-in text-center pt-8 pb-2">
+      <p class="text-5xl mb-4">✍️</p>
       <h3 class="text-2xl font-black text-slate-800 mb-2">빈칸채우기</h3>
-      <p class="text-slate-500">${FILL.length ? `총 ${FILL.length}문장이 준비되어 있어요.` : '아직 문장이 없어요. fill.txt 파일을 올려 주세요.'}</p>
+      ${FILL.length ? '' : '<p class="text-slate-500">아직 문장이 없어요. fill.txt 파일을 올려 주세요.</p>'}
+      <p class="text-slate-400 text-sm mt-2">교과서에 등장하는 문장 속 빈칸을 채워보자.<br>띄어쓰기나 사소한 오타는 정답으로 인정😉</p>
+      <p class="text-slate-400 text-sm mt-2">❎ 틀린 문제는 자동 저장으로 사이드바의 '오답 노트'에서<br>다시 풀어 볼 수 있어요!</p>
       ${fillSkipped.length ? `<p class="text-xs text-amber-700 mt-2">단원을 찾지 못했거나 빈칸([[ ]])이 없는 문장 ${fillSkipped.length}개는 빠졌어요.</p>` : ''}
-      <button onclick="openSidebar()" class="mt-6 px-6 py-3 rounded-xl text-white font-bold shadow-sm" style="background:var(--accent)">단원 선택하기</button>
-      <p class="mt-8 mx-auto max-w-sm text-sm text-slate-500 bg-white border border-slate-200 rounded-xl px-4 py-3 leading-relaxed">
-        빈칸에 들어갈 말을 입력하고 <b class="text-slate-700">정답 확인</b>을 누르세요. 띄어쓰기나 사소한 오타는 정답으로 봐줘요.${user ? '<br>틀린 문장은 <b class="text-slate-700">❌ 오답 노트</b>에 모여요.' : ''}</p>
-    </div>`;
+    </div>` + rangeBox(fillCount, 'startFillRange');
 }
+window.startFillRange = function () {
+  const codes = midSelectedCodes();
+  if (!codes.length) return showModal('범위를 하나 이상 골라주세요.');
+  startFill('sel:' + codes.join(','));
+};
 
 window.startFill = function (scope, items) {
   currentUnit = scope === 'all' ? null : scope === 'wrong' ? '__wrong' : scope;
   if (!items) {
     items = scope === 'wrong' ? fillWrongItems()
       : isGrp(scope) ? FILL.filter(x => groupOf_(scope).units.some(u => u.code === x.code))
+      : isSel(scope) ? FILL.filter(x => scope.slice(4).split(',').includes(x.code))
       : FILL.filter(x => scope === 'all' || x.code === scope);
     if (fill.random) items = shuffle([...items]);
   }
   fill = { ...fill, scope, items, idx: 0, right: 0, wrong: [], answered: null, typed: [] };
   const u = unitByCode[scope];
-  setHeader(u ? u.title : scope === 'wrong' ? '오답 노트 다시 풀기' : isGrp(scope) ? groupOf_(scope).title : '빈칸채우기 · 전체', `빈칸채우기 · ${items.length}문장`);
+  setHeader(u ? u.title : scope === 'wrong' ? '오답 노트 다시 풀기' : isGrp(scope) ? groupOf_(scope).title : isSel(scope) ? '고른 범위 · 빈칸채우기' : '빈칸채우기 · 전체', `빈칸채우기 · ${items.length}문장`);
   renderSidebar(); renderFill(); closeSidebarMobile();
   $('scroll-area').scrollTo({ top: 0 });
 };
@@ -1120,7 +1182,7 @@ function renderFill() {
   it.parts.forEach((p, i) => { sentenceHtml += p; if (i < nb) sentenceHtml += blankHtml(i); });
   content.innerHTML = bar + `
     <article class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 md:p-8 fade-in">
-      ${fill.scope === 'all' || fill.scope === 'wrong' || isGrp(fill.scope) ? `<p class="text-xs font-bold mb-3" style="color:var(--accent)">${unitByCode[it.code].title}</p>` : ''}
+      ${fill.scope === 'all' || fill.scope === 'wrong' || isGrp(fill.scope) || isSel(fill.scope) ? `<p class="text-xs font-bold mb-3" style="color:var(--accent)">${unitByCode[it.code].title}</p>` : ''}
       <p class="text-lg md:text-xl font-bold text-slate-800 leading-loose">${sentenceHtml}</p>
       ${done ? `
       <div class="mt-5 rounded-xl p-4 fade-in ${fill.answered.correct ? 'bg-emerald-50' : 'bg-red-50'}">
