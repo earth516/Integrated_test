@@ -146,6 +146,7 @@ const CATEGORIES = {
 const BOOKS = [
   { id: 'p1', category: 'practice', dir: 'practice/book1', short: '문제집A' },
   { id: 'p2', category: 'practice', dir: 'practice/book2', short: '문제집B' },
+  { id: 'p3', category: 'practice', dir: 'practice/book3', short: '문제집C' },
   { id: 'x1', category: 'past',     dir: 'past/book1',     short: '기출A' },
   { id: 'x2', category: 'past',     dir: 'past/book2',     short: '기출B' },
 ];
@@ -239,7 +240,7 @@ const isMock = () => currentCat === 'mock';
 function getQuestions(bookId, code) {
   // key: 시트에 저장되는 문제 이름 (예: practice/book1/1-1-2/17)
   const diffs = diffDb[bookId][code] || {};
-  return (db[bookId][code] || []).map(n => ({ id: `${bookId}__${n}`, key: `${bookById[bookId].dir}/${code}/${n}`, bookId, code, number: n, diff: diffs[n] || null }));
+  return (db[bookId][code] || []).map(n => ({ id: `${bookId}__${code}__${n}`, key: `${bookById[bookId].dir}/${code}/${n}`, bookId, code, number: n, diff: diffs[n] || null }));
 }
 const bookOrder = Object.fromEntries(BOOKS.map((b, i) => [b.id, i]));
 const unitOrder = Object.fromEntries(UNITS.map((u, i) => [u.code, i]));
@@ -376,7 +377,7 @@ function showWelcome() {
     <div class="fade-in text-center pt-16 md:pt-24">
       <p class="text-5xl mb-5">${cat.icon}</p>
       <h3 class="text-2xl font-black text-slate-800 mb-2">${cat.title}</h3>
-      <p class="text-slate-500">${total ? `총 ${total}문제가 준비되어 있어요.` : '아직 등록된 문제가 없어요. 소단원 폴더에 이미지를 올려 주세요.'}</p>
+      ${total ? '' : '<p class="text-slate-500">아직 등록된 문제가 없어요. 소단원 폴더에 이미지를 올려 주세요.</p>'}
       <button onclick="openSidebar()" class="mt-6 px-6 py-3 rounded-xl text-white font-bold shadow-sm" style="background:var(--accent)">단원 선택하기</button>
       ${user ? `<p class="mt-8 mx-auto max-w-sm text-sm text-slate-500 bg-white border border-slate-200 rounded-xl px-4 py-3 leading-relaxed break-keep">
         문제 번호 옆 <b class="text-amber-400 text-base">☆</b>를 누르면 문제가 저장돼요.<br>저장한 문제는 <b class="text-slate-700">⭐ 체크한 문제</b>에서 다시 풀 수 있어요.</p>` : ''}
