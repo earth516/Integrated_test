@@ -98,6 +98,7 @@
   </div>
   <!-- 큰 카테고리: 문제풀기 / 기출 문제 / 모의고사 -->
   <div class="px-3 pb-3 border-b border-slate-100">
+    <div id="subj-tabs" class="grid grid-cols-2 gap-1 mb-2"></div>
     <div id="cat-tabs" class="grid gap-1 bg-slate-100 p-1 rounded-xl"></div>
   </div>
   <div class="flex-1 overflow-y-auto px-3 py-4">
@@ -135,26 +136,85 @@ const CATEGORIES = {
 };
 
 /* ============================================================
-   ② 교재 설정
+   ② 과목 (사이드바 맨 위 [통합과학1 | 통합과학2] 전환 버튼)
+   - ox / fill : 과목별 OX·빈칸 파일 위치
+   - legacy    : (통합과학2) s2 폴더로 옮기기 전의 예전 위치 — 옮기기 전에도 사이트가 동작하게
+   ============================================================ */
+const SUBJECTS = {
+  s1: { title: '통합과학1', ox: 's1/ox.txt', fill: 's1/fill.txt' },
+  s2: { title: '통합과학2', ox: 's2/ox.txt', fill: 's2/fill.txt', legacy: { ox: 'ox.txt', fill: 'fill.txt' } },
+};
+const DEFAULT_SUBJECT = 's2';   // 처음 들어왔을 때 보여 줄 과목
+
+/* ============================================================
+   ③ 교재 설정
+   - subject : 's1'(통합과학1) 또는 's2'(통합과학2)
    - category: 'practice'(문제풀기) 또는 'past'(기출 문제)
-   - dir     : 교재 폴더. 그 안에 소단원 폴더(1-1-1 ~ 3-2)를 만들고
-               문제·해설 이미지를 원래 번호 그대로 넣으면 돼요.
-               예) practice/book1/1-1-2/17번_문제.png, 17번_해설.png
-   - short   : 문제 카드에 표시되는 교재 이름
-   - 같은 카테고리의 교재들은 소단원별로 합쳐져서 나와요.
+   - dir     : 교재 폴더. 그 안에 소단원 폴더(1-1-1 …)를 만들고 이미지를 넣어요.
+               예) s1/practice/book1/1-1-2/17번_문제.png, 17번_해설.png
+   - record  : (통합과학2만) 체크 기록에 쓰는 예전 이름 — 폴더를 s2로 옮겨도 기록이 이어지게. 바꾸지 마세요!
+   - short   : 체크 기록에 남는 짧은 이름
+   - 같은 과목·같은 카테고리의 교재들은 소단원별로 합쳐져서 나와요.
    ============================================================ */
 const BOOKS = [
-  { id: 'p1', category: 'practice', dir: 'practice/book1', short: '문제집A' },
-  { id: 'p2', category: 'practice', dir: 'practice/book2', short: '문제집B' },
-  { id: 'p3', category: 'practice', dir: 'practice/book3', short: '문제집C' },
-  { id: 'x1', category: 'past',     dir: 'past/book1',     short: '기출A' },
-  { id: 'x2', category: 'past',     dir: 'past/book2',     short: '기출B' },
+  // 통합과학1
+  { id: 's1p1', subject: 's1', category: 'practice', dir: 's1/practice/book1', short: '문제집A' },
+  { id: 's1p2', subject: 's1', category: 'practice', dir: 's1/practice/book2', short: '문제집B' },
+  { id: 's1p3', subject: 's1', category: 'practice', dir: 's1/practice/book3', short: '문제집C' },
+  { id: 's1x1', subject: 's1', category: 'past',     dir: 's1/past/book1',     short: '기출A' },
+  { id: 's1x2', subject: 's1', category: 'past',     dir: 's1/past/book2',     short: '기출B' },
+  // 통합과학2
+  { id: 'p1', subject: 's2', category: 'practice', dir: 's2/practice/book1', record: 'practice/book1', short: '문제집A' },
+  { id: 'p2', subject: 's2', category: 'practice', dir: 's2/practice/book2', record: 'practice/book2', short: '문제집B' },
+  { id: 'p3', subject: 's2', category: 'practice', dir: 's2/practice/book3', record: 'practice/book3', short: '문제집C' },
+  { id: 'x1', subject: 's2', category: 'past',     dir: 's2/past/book1',     record: 'past/book1',     short: '기출A' },
+  { id: 'x2', subject: 's2', category: 'past',     dir: 's2/past/book2',     record: 'past/book2',     short: '기출B' },
 ];
 
 /* ============================================================
-   ③ 단원 구성
+   ④ 단원 구성 (과목별) — code가 곧 소단원 폴더 이름
    ============================================================ */
-const CURRICULUM = [
+const CURRICULUM_BY_SUBJECT = {
+ s1: [
+  { title: 'I. 과학의 기초', groups: [
+    { title: '과학의 기본량', units: [
+      { code: '1-1-1', title: '시간과 공간' },
+      { code: '1-1-2', title: '기본량과 단위' },
+    ]},
+    { title: '측정 표준과 정보', units: [
+      { code: '1-2-1', title: '측정과 측정 표준' },
+      { code: '1-2-2', title: '신호와 정보' },
+    ]},
+  ]},
+  { title: 'II. 물질과 규칙성', groups: [
+    { title: '원소의 생성과 규칙성', units: [
+      { code: '2-1-1', title: '우주 초기에 생성된 원소' },
+      { code: '2-1-2', title: '별의 진화와 원소의 생성' },
+      { code: '2-1-3', title: '원소의 주기성과 결합' },
+      { code: '2-1-4', title: '이온 결합과 공유 결합' },
+    ]},
+    { title: '자연의 구성물', units: [
+      { code: '2-2-1', title: '지각과 생명체를 구성하는 물질' },
+      { code: '2-2-2', title: '물질의 전기적 성질' },
+    ]},
+  ]},
+  { title: 'III. 시스템과 상호작용', groups: [
+    { title: '지구 시스템', units: [
+      { code: '3-1-1', title: '지구시스템의 구성과 상호작용' },
+      { code: '3-1-2', title: '지권의 변화와 판 구조론' },
+    ]},
+    { title: '역학 시스템', units: [
+      { code: '3-2-1', title: '중력의 작용' },
+      { code: '3-2-2', title: '역학 시스템과 안전' },
+    ]},
+    { title: '생명 시스템', units: [
+      { code: '3-3-1', title: '생명 시스템에서의 화학 반응' },
+      { code: '3-3-2', title: '세포막을 통한 물질 출입' },
+      { code: '3-3-3', title: '세포 내 정보의 흐름' },
+    ]},
+  ]},
+ ],
+ s2: [
   { title: 'I. 변화와 다양성', groups: [
     { title: '환경 변화와 생물다양성', units: [
       { code: '1-1-1', title: '지질 시대의 환경과 생물 변화' },
@@ -185,10 +245,14 @@ const CURRICULUM = [
       { code: '3-2', title: '과학기술의 발전과 윤리' },
     ]},
   ]},
-];
+ ],
+};
+// 두 과목의 단원을 하나로 합치고, 소단원 코드를 과목별로 구분 ('1-1-1' → 's2:1-1-1', 폴더 이름은 folder)
+const CURRICULUM = Object.entries(CURRICULUM_BY_SUBJECT).flatMap(([subj, bigs]) => bigs.map(big => ({ ...big, subj })));
+CURRICULUM.forEach(big => big.groups.forEach(g => g.units.forEach(u => { u.folder = u.code; u.code = big.subj + ':' + u.folder; })));
 
 /* ============================================================
-   ④ 로그인·기록 연동 (구글 시트 + Apps Script)
+   ⑤ 로그인·기록 연동 (구글 시트 + Apps Script)
    - API_URL : Apps Script 웹 앱 주소를 따옴표 안에 붙여넣기
                비워 두면 로그인 없이 지금처럼 동작해요.
    - SUBJECT : 시트의 '과목' 칸에 들어가는 이름 (지구과학 사이트는 '지구과학')
@@ -199,20 +263,20 @@ const SITE_TITLE = 'SJ 통합과학 문제은행';   // 사이트 이름 (탭 �
 document.title = SITE_TITLE;
 document.querySelectorAll('.site-title').forEach(el => el.textContent = SITE_TITLE);
 
-/* ⑤ 기타 설정 */
+/* ⑥ 기타 설정 */
 const PER_PAGE = 1;            // 한 페이지 문제 수
 // 하단 버튼 공통 크기 (이전 / 정답 및 해설 / 다음)
 const BTN = 'px-3 sm:px-4 py-2 text-sm rounded-lg font-bold border whitespace-nowrap disabled:opacity-40';
 
 /* ---------------- 내부 데이터 ---------------- */
 const UNITS = [];
-CURRICULUM.forEach((big, bi) => big.groups.forEach(g => g.units.forEach(u => UNITS.push({ ...u, bi, big: big.title, group: g.title }))));
+CURRICULUM.forEach((big, bi) => big.groups.forEach(g => g.units.forEach(u => UNITS.push({ ...u, bi, subj: big.subj, big: big.title, group: g.title }))));
 const unitByCode = Object.fromEntries(UNITS.map(u => [u.code, u]));
 const bookById = Object.fromEntries(BOOKS.map(b => [b.id, b]));
 const booksIn = cat => BOOKS.filter(b => b.category === cat);
 // 파일 이름 뒤에 _상/_중/_하 를 붙이면 난이도로 인식 (예: 17번_문제_상.png, 17번_해설_상.png)
-const qPath = (bookId, code, n, diff) => `${bookById[bookId].dir}/${code}/${n}번_문제${diff ? '_' + diff : ''}.png`;
-const aPath = (bookId, code, n, diff) => `${bookById[bookId].dir}/${code}/${n}번_해설${diff ? '_' + diff : ''}.png`;
+const qPath = (bookId, code, n, diff) => `${bookById[bookId].dir}/${unitByCode[code].folder}/${n}번_문제${diff ? '_' + diff : ''}.png`;
+const aPath = (bookId, code, n, diff) => `${bookById[bookId].dir}/${unitByCode[code].folder}/${n}번_해설${diff ? '_' + diff : ''}.png`;
 
 const db = {};     // db[bookId][소단원코드] = [문제 번호들]  (manifest.json에서 읽어옴)
 const diffDb = {}; // diffDb[bookId][소단원코드][번호] = '상'|'중'|'하'|null
@@ -240,7 +304,8 @@ const isMock = () => currentCat === 'mock';
 function getQuestions(bookId, code) {
   // key: 시트에 저장되는 문제 이름 (예: practice/book1/1-1-2/17)
   const diffs = diffDb[bookId][code] || {};
-  return (db[bookId][code] || []).map(n => ({ id: `${bookId}__${code}__${n}`, key: `${bookById[bookId].dir}/${code}/${n}`, bookId, code, number: n, diff: diffs[n] || null }));
+  const b = bookById[bookId], folder = unitByCode[code].folder;
+  return (db[bookId][code] || []).map(n => ({ id: `${bookId}__${folder}__${n}`, key: `${b.record || b.dir}/${folder}/${n}`, bookId, code, number: n, diff: diffs[n] || null }));
 }
 const bookOrder = Object.fromEntries(BOOKS.map((b, i) => [b.id, i]));
 const unitOrder = Object.fromEntries(UNITS.map((u, i) => [u.code, i]));
@@ -250,7 +315,11 @@ const byDifficulty = (a, b) => (DIFF_ORDER[a.diff || '중'] - DIFF_ORDER[b.diff 
 // 카테고리 안 모든 교재의 해당 소단원 문제를 합쳐서
 const catQuestions = (cat, code) => booksIn(cat).flatMap(b => getQuestions(b.id, code));
 const countOf = (cat, code) => catQuestions(cat, code).length;
-const catTotal = cat => UNITS.reduce((s, u) => s + countOf(cat, u.code), 0);
+const catTotal = (cat, subj) => UNITS.filter(u => !subj || u.subj === subj).reduce((s, u) => s + countOf(cat, u.code), 0);
+// 지금 고른 과목
+let currentSubject = (() => { try { const v = localStorage.getItem('sj_subject'); return SUBJECTS[v] ? v : DEFAULT_SUBJECT; } catch { return DEFAULT_SUBJECT; } })();
+const inSubj = code => unitByCode[code] && unitByCode[code].subj === currentSubject;
+const subjTitle = () => SUBJECTS[currentSubject].title;
 const shuffle = arr => { for (let i = arr.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]]; } return arr; };
 
 /* ---------------- 공통 UI ---------------- */
@@ -280,6 +349,11 @@ function closeModal(force = false) { if (!isLocked || force) { isLocked = false;
 
 /* ---------------- 사이드바 ---------------- */
 function renderSidebar() {
+  // 과목 전환 [통합과학1 | 통합과학2]
+  $('subj-tabs').innerHTML = Object.entries(SUBJECTS).map(([k, sj]) => {
+    const on = currentSubject === k;
+    return `<button onclick="changeSubject('${k}')" class="py-1.5 rounded-lg text-[13px] font-black border transition-colors ${on ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'}">${sj.title}</button>`;
+  }).join('');
   // 카테고리 탭
   const tabs = Object.entries(CATEGORIES).filter(([k]) => k === 'ox' || k === 'fill' || booksIn(k).length)
     .map(([k, c]) => ({ k, label: c.tab || c.title, icon: c.icon, color: c.color }))
@@ -316,7 +390,7 @@ function renderSidebar() {
       <span class="flex-shrink-0 text-[11px] tabular-nums ${n ? 'text-slate-500' : 'text-slate-300'}">${n}</span>
     </button>`;
   };
-  $('unit-nav').innerHTML = collect + CURRICULUM.map((big, bi) => `
+  $('unit-nav').innerHTML = collect + CURRICULUM.map((big, bi) => big.subj !== currentSubject ? '' : `
     <div class="mb-5">
       <div class="px-2 mb-1 text-[13px] font-black text-slate-800">${big.title}</div>
       ${big.groups.map((g, gi) => {
@@ -361,6 +435,12 @@ function expandFor(code) {
   CURRICULUM.forEach((big, bi) => big.groups.forEach((g, gi) => { if (g.title && g.units.some(u => u.code === code)) expandedGroups.add(`${bi}-${gi}`); }));
 }
 
+window.changeSubject = function (subj) {
+  currentSubject = subj;
+  try { localStorage.setItem('sj_subject', subj); } catch {}
+  if (isMock()) { renderSidebar(); return; }   // 모의고사는 두 과목을 함께 고르므로 화면 그대로
+  showWelcome();
+};
 window.changeCategory = function (cat) {
   if (cat === 'mock') return showMockIntro();
   currentCat = cat; setAccent(cat);
@@ -371,11 +451,12 @@ function showWelcome() {
   currentUnit = null; renderSidebar();
   if (currentCat === 'ox') return showOxWelcome();
   if (currentCat === 'fill') return showFillWelcome();
-  const cat = CATEGORIES[currentCat], total = catTotal(currentCat);
+  const cat = CATEGORIES[currentCat], total = catTotal(currentCat, currentSubject);
   setHeader(cat.title, '왼쪽 메뉴에서 소단원을 누르면 문제가 나와요.');
   content.innerHTML = `
     <div class="fade-in text-center pt-16 md:pt-24">
       <p class="text-5xl mb-5">${cat.icon}</p>
+      <p class="text-sm font-bold mb-1" style="color:var(--accent)">${subjTitle()}</p>
       <h3 class="text-2xl font-black text-slate-800 mb-2">${cat.title}</h3>
       ${total ? '' : '<p class="text-slate-500">아직 등록된 문제가 없어요. 소단원 폴더에 이미지를 올려 주세요.</p>'}
       <button onclick="openSidebar()" class="mt-6 px-6 py-3 rounded-xl text-white font-bold shadow-sm" style="background:var(--accent)">단원 선택하기</button>
@@ -393,7 +474,7 @@ window.selectUnit = function (code) {
   const u = unitByCode[code];
   list = catQuestions(currentCat, code).sort(byDifficulty); isRandom = false;
   page = resumePage(code);   // 마지막까지 다 봤으면 처음부터, 아니면 이어서
-  setHeader(u.title, `${CATEGORIES[currentCat].title} · ${[u.big, u.group].filter(Boolean).join(' / ')} · ${list.length}문제`);
+  setHeader(u.title, `${SUBJECTS[u.subj].title} · ${CATEGORIES[currentCat].title} · ${[u.big, u.group].filter(Boolean).join(' / ')} · ${list.length}문제`);
   renderSidebar(); renderPage(); closeSidebarMobile();
   $('scroll-area').scrollTo({ top: 0 });
 };
@@ -454,7 +535,7 @@ function showMockIntro() {
       <span class="ml-auto text-xs text-slate-400 tabular-nums">${catTotal(k)}문제</span>
     </label>`).join('');
 
-  const treeHtml = CURRICULUM.map((big, bi) => `
+  const treeHtml = CURRICULUM.map((big, bi) => (bi === 0 || CURRICULUM[bi - 1].subj !== big.subj ? `<div class="md:col-span-3 text-sm font-black text-slate-500 pt-2">${SUBJECTS[big.subj].title}</div>` : '') + `
     <div class="bg-white rounded-xl border border-slate-200 p-4">
       <label class="flex items-center gap-2 font-bold text-slate-800 cursor-pointer mb-2">
         <input type="checkbox" id="big-${bi}" onchange="toggleBig(${bi}, this.checked)" class="w-4 h-4 accent-amber-700">${big.title}
@@ -623,7 +704,7 @@ function renderCards(questions, target, mock, offset = 0) {
   if (!questions.length) {
     target.innerHTML = currentUnit === '__star'
       ? `<div class="bg-white p-10 rounded-2xl border border-slate-200 text-center text-slate-500">아직 체크한 문제가 없어요.<br><span class="text-sm text-slate-400">문제 번호 옆의 ☆를 누르면 여기에 모여요.</span></div>`
-      : `<div class="bg-white p-10 rounded-2xl border border-slate-200 text-center text-slate-500">이 소단원에는 아직 문제가 없어요.<br><span class="text-sm text-slate-400">${currentUnit} 폴더에 이미지를 올렸는지 확인해 주세요.</span></div>`;
+      : `<div class="bg-white p-10 rounded-2xl border border-slate-200 text-center text-slate-500">이 소단원에는 아직 문제가 없어요.<br><span class="text-sm text-slate-400">${unitByCode[currentUnit] ? unitByCode[currentUnit].folder + ' ' : ''}폴더에 이미지를 올렸는지 확인해 주세요.</span></div>`;
     return;
   }
   questions.forEach(q => { qIndex[q.id] = q; });
@@ -776,19 +857,27 @@ window.clearInk = function (id) {
    ox.txt (탭으로 구분)  대단원 | 소단원 | 문장 | 정답(O/X) | 해설
    엑셀에서 표를 복사해 메모장에 붙여넣고 ox.txt로 저장하면 돼요.            */
 let OX = [], oxSkipped = [];
-const OX_ALIAS = {   // 파일의 소단원 이름 → 사이트 단원 코드 (이름이 다를 때)
-  '과학의유용성과필요성': '3-1', '빅데이터의활용': '3-1',
-  '과학기술의발전과한계': '3-2', '과학관련사회적쟁점과과학윤리': '3-2',
+const OX_ALIAS = {   // 파일의 소단원 이름 → 사이트 소단원 폴더 (이름이 다를 때), 과목별
+  s1: {},
+  s2: { '과학의유용성과필요성': '3-1', '빅데이터의활용': '3-1', '과학기술의발전과한계': '3-2', '과학관련사회적쟁점과과학윤리': '3-2' },
 };
 const squash = t => (t || '').replace(/\s/g, '');
-function matchUnit(name) {
+function matchUnit(name, subj) {
   const n = squash(name);
   if (!n) return null;
-  if (OX_ALIAS[n]) return OX_ALIAS[n];
-  const exact = UNITS.find(u => squash(u.title) === n);
+  const alias = (OX_ALIAS[subj] || {})[n];
+  if (alias) return subj + ':' + alias;
+  const pool = UNITS.filter(u => u.subj === subj);
+  const exact = pool.find(u => squash(u.title) === n);
   if (exact) return exact.code;
-  const part = UNITS.find(u => n.length >= 3 && (squash(u.title).includes(n) || n.includes(squash(u.title))));
+  const part = pool.find(u => n.length >= 3 && (squash(u.title).includes(n) || n.includes(squash(u.title))));
   return part ? part.code : null;
+}
+async function fetchText(path, legacyPath) {   // 파일이 없으면 예전 위치에서 한 번 더 찾기
+  for (const p of [path, legacyPath].filter(Boolean)) {
+    try { const r = await fetch(p, { cache: 'no-store' }); if (r.ok) return decodeText(await r.arrayBuffer()); } catch {}
+  }
+  return null;
 }
 function decodeText(buf) {
   const b = new Uint8Array(buf);
@@ -797,7 +886,7 @@ function decodeText(buf) {
   try { return new TextDecoder('utf-8', { fatal: true }).decode(buf); }                 // 메모장 기본
   catch { return new TextDecoder('euc-kr').decode(buf); }                               // 엑셀 '텍스트(탭으로 분리)'
 }
-function parseOx(text) {
+function parseOx(text, subj) {
   const out = [], skipped = [];
   const unq = c => { c = c.trim(); return (c.startsWith('"') && c.endsWith('"')) ? c.slice(1, -1).replace(/""/g, '"') : c; };
   text.split(/\r?\n/).forEach(line => {
@@ -805,7 +894,7 @@ function parseOx(text) {
     if (c.length < 4 || c[3] === '정답' || !c[2]) return;
     const a = c[3].toUpperCase();
     const ans = ['O', 'Ｏ', '○', '⭕', 'ㅇ'].includes(a) ? true : ['X', 'Ｘ', '×', '✕', '❌'].includes(a) ? false : null;
-    const code = matchUnit(c[1]);
+    const code = matchUnit(c[1], subj);
     if (!code || ans === null) { skipped.push(c[1] + ' / ' + c[2]); return; }
     out.push({ code, q: c[2], ans, exp: c[4] || '', sid: hashId(c[2]) });
   });
@@ -813,10 +902,12 @@ function parseOx(text) {
 }
 async function loadOx() {
   try {
-    const r = await fetch('ox.txt', { cache: 'no-store' });
-    if (!r.ok) return;
-    const { out, skipped } = parseOx(decodeText(await r.arrayBuffer()));
-    OX = out; oxSkipped = skipped;
+    for (const [subj, sj] of Object.entries(SUBJECTS)) {
+      const text = await fetchText(sj.ox, sj.legacy && sj.legacy.ox);
+      if (!text) continue;
+      const { out, skipped } = parseOx(text, subj);
+      OX.push(...out); oxSkipped.push(...skipped);
+    }
     if (skipped.length) console.warn('OX: 단원을 찾지 못했거나 정답 칸이 O/X가 아닌 줄', skipped);
   } catch (e) { console.warn('OX 파일을 읽지 못했어요', e); }
 }
@@ -828,6 +919,7 @@ let ox = { scope: null, items: [], idx: 0, right: 0, wrong: [], answered: null, 
    없으면(III단원처럼) 소단원 하나하나가 한 줄 */
 function midTreeHtml(countFn) {
   return CURRICULUM.map((big, bi) => {
+    if (big.subj !== currentSubject) return '';
     const rows = big.groups.map(g => {
       if (g.title) {
         const codes = g.units.map(u => u.code), n = codes.reduce((s, c) => s + countFn(c), 0);
@@ -873,8 +965,9 @@ function showOxWelcome() {
   content.innerHTML = `
     <div class="fade-in text-center pt-8 pb-2">
       <p class="text-5xl mb-4">⭕</p>
+      <p class="text-sm font-bold mb-1" style="color:var(--accent)">${subjTitle()}</p>
       <h3 class="text-2xl font-black text-slate-800 mb-2">OX 퀴즈</h3>
-      ${OX.length ? '' : '<p class="text-slate-500">아직 문장이 없어요. ox.txt 파일을 올려 주세요.</p>'}
+      ${OX.some(x => inSubj(x.code)) ? '' : `<p class="text-slate-500">아직 문장이 없어요. ${SUBJECTS[currentSubject].ox} 파일을 올려 주세요.</p>`}
       <p class="text-slate-400 text-sm mt-2">❌ 틀린 문장은 저장돼서 사이드바의 '틀린 문장'에서 다시 풀어 볼 수 있어요.</p>
       ${oxSkipped.length ? `<p class="text-xs text-amber-700 mt-2">단원을 찾지 못한 문장 ${oxSkipped.length}개는 빠졌어요.</p>` : ''}
     </div>` + rangeBox(oxCount, 'startOxRange');
@@ -1002,13 +1095,13 @@ function renderOx() {
    - 채점은 관대하게: 띄어쓰기·대소문자 무시, 긴 단어는 오타 한두 글자까지 봐줘요.
    - 틀린 기록은 OX와 같은 시트 탭(OX기록)에 함께 저장돼요.                       */
 let FILL = [], fillSkipped = [];
-function parseFill(text) {
+function parseFill(text, subj) {
   const out = [], skipped = [];
   const unq = c => { c = c.trim(); return (c.startsWith('"') && c.endsWith('"')) ? c.slice(1, -1).replace(/""/g, '"') : c; };
   text.split(/\r?\n/).forEach(line => {
     const c = line.split('\t').map(unq);
     if (c.length < 3 || !c[2] || c[2] === '문장') return;
-    const code = matchUnit(c[1]), raw = c[2];
+    const code = matchUnit(c[1], subj), raw = c[2];
     const parts = [], answers = [];
     let last = 0, m;
     const re = /\[\[([^\]]+)\]\]/g;
@@ -1025,15 +1118,17 @@ function parseFill(text) {
 }
 async function loadFill() {
   try {
-    const r = await fetch('fill.txt', { cache: 'no-store' });
-    if (!r.ok) return;
-    const { out, skipped } = parseFill(decodeText(await r.arrayBuffer()));
-    FILL = out; fillSkipped = skipped;
+    for (const [subj, sj] of Object.entries(SUBJECTS)) {
+      const text = await fetchText(sj.fill, sj.legacy && sj.legacy.fill);
+      if (!text) continue;
+      const { out, skipped } = parseFill(text, subj);
+      FILL.push(...out); fillSkipped.push(...skipped);
+    }
     if (skipped.length) console.warn('빈칸채우기: 단원을 찾지 못했거나 빈칸([[ ]])이 없는 줄', skipped);
   } catch (e) { console.warn('fill.txt 파일을 읽지 못했어요', e); }
 }
 const fillCount = code => FILL.filter(x => x.code === code).length;
-const fillWrongItems = () => FILL.filter(x => oxWrongSet.has(x.sid));
+const fillWrongItems = () => FILL.filter(x => oxWrongSet.has(x.sid) && inSubj(x.code));
 
 function levenshtein(a, b) {   // 두 글자 사이의 차이(오타 개수)
   const m = a.length, n = b.length;
@@ -1065,8 +1160,9 @@ function showFillWelcome() {
   content.innerHTML = `
     <div class="fade-in text-center pt-8 pb-2">
       <p class="text-5xl mb-4">✍️</p>
+      <p class="text-sm font-bold mb-1" style="color:var(--accent)">${subjTitle()}</p>
       <h3 class="text-2xl font-black text-slate-800 mb-2">빈칸채우기</h3>
-      ${FILL.length ? '' : '<p class="text-slate-500">아직 문장이 없어요. fill.txt 파일을 올려 주세요.</p>'}
+      ${FILL.some(x => inSubj(x.code)) ? '' : `<p class="text-slate-500">아직 문장이 없어요. ${SUBJECTS[currentSubject].fill} 파일을 올려 주세요.</p>`}
       <p class="text-slate-400 text-sm mt-2">교과서에 등장하는 문장 속 빈칸을 채워보자.<br>띄어쓰기나 사소한 오타는 정답으로 인정😉</p>
       <p class="text-slate-400 text-sm mt-2">❎ 틀린 문제는 자동 저장으로 사이드바의 '오답 노트'에서<br>다시 풀어 볼 수 있어요!</p>
       ${fillSkipped.length ? `<p class="text-xs text-amber-700 mt-2">단원을 찾지 못했거나 빈칸([[ ]])이 없는 문장 ${fillSkipped.length}개는 빠졌어요.</p>` : ''}
@@ -1215,8 +1311,8 @@ function hashId(text) {   // 문장 → 짧은 ID (FNV-1a)
   for (const ch of squash(text)) { h ^= ch.codePointAt(0); h = Math.imul(h, 0x01000193) >>> 0; }
   return 'ox' + h.toString(36);
 }
-const starredIn = cat => UNITS.flatMap(u => catQuestions(cat, u.code)).filter(q => starSet.has(q.key));
-const oxWrongItems = () => OX.filter(x => oxWrongSet.has(x.sid));
+const starredIn = cat => UNITS.filter(u => u.subj === currentSubject).flatMap(u => catQuestions(cat, u.code)).filter(q => starSet.has(q.key));
+const oxWrongItems = () => OX.filter(x => oxWrongSet.has(x.sid) && inSubj(x.code));
 
 async function api(action, extra = {}, keepalive = false) {
   const res = await fetch(API_URL, {
@@ -1341,13 +1437,13 @@ window.toggleStar = function (id) {
   const btn = $(`star-${id}`);
   if (btn) { btn.innerText = on ? '★' : '☆'; btn.classList.toggle('text-amber-400', on); btn.classList.toggle('text-slate-300', !on); }
   const book = bookById[q.bookId];
-  queueOp({ t: 'check', key: q.key, on, label: `${CATEGORIES[book.category].title} · ${book.short} ${q.number}번 · ${unitByCode[q.code].title}` });
+  queueOp({ t: 'check', key: q.key, on, label: `${SUBJECTS[book.subject].title} · ${CATEGORIES[book.category].title} · ${book.short} ${q.number}번 · ${unitByCode[q.code].title}` });
   renderSidebar();
 };
 window.selectStarred = function () {
   currentUnit = '__star';
   list = starredIn(currentCat); page = 1; isRandom = false;
-  setHeader('⭐ 체크한 문제', `${CATEGORIES[currentCat].title} · ${list.length}문제`);
+  setHeader('⭐ 체크한 문제', `${subjTitle()} · ${CATEGORIES[currentCat].title} · ${list.length}문제`);
   renderSidebar(); renderPage(); closeSidebarMobile();
   $('scroll-area').scrollTo({ top: 0 });
 };
@@ -1396,9 +1492,13 @@ async function init() {
     if (!res.ok) throw new Error(res.status);
     const manifest = await res.json();
     BOOKS.forEach(b => {
+      // 통합과학2를 s2 폴더로 옮기기 전이라면 예전 위치(practice/book1 …)에서 찾기
+      if (!manifest[b.dir] && b.record && manifest[b.record]) b.dir = b.record;
       const units = manifest[b.dir] || {};
-      Object.keys(units).forEach(code => {
-        const u = units[code];
+      Object.keys(units).forEach(folder => {
+        const code = b.subject + ':' + folder;
+        if (!unitByCode[code]) return;   // 사이트 단원에 없는 폴더는 건너뜀
+        const u = units[folder];
         if (Array.isArray(u)) {   // 예전 형식: [1, 2, 5]
           db[b.id][code] = [...u].sort((x, y) => x - y); diffDb[b.id][code] = {};
         } else {                  // 새 형식: {"1": null, "2": "상"}
