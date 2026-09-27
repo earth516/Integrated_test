@@ -295,6 +295,7 @@ let lastPage = {};   // 카테고리+단원별 마지막에 보던 페이지 (�
 const resumePage = scope => { const n = Math.max(1, Math.ceil(list.length / PER_PAGE)), r = lastPage[currentCat + '|' + scope]; return (r && r < n) ? r : 1; };
 let isLocked = false;
 let mockPicked = [];
+let mockCount = 20;   // 모의고사 문제 수
 let expandedGroups = new Set();   // 사이드바에서 펼쳐 놓은 중단원 키 ('대단원번호-중단원번호')
 
 const $ = id => document.getElementById(id);
@@ -488,7 +489,7 @@ window.changePage = function (d) {
   page = page + d;
   if (page > pages) page = 1;   // 마지막에서 다음 → 처음으로
   if (page < 1) page = pages;   // 처음에서 이전 → 마지막으로
-  if (currentUnit) lastPage[currentCat + '|' + currentUnit] = page;
+  if (currentUnit) { lastPage[currentCat + '|' + currentUnit] = page; lsSet(LS_POS, lastPage); }
   renderPage(); $('scroll-area').scrollTo({ top: 0, behavior: 'smooth' });
 };
 
@@ -557,34 +558,44 @@ function showMockIntro() {
         <legend class="font-bold text-slate-700 mb-3">출제할 문제</legend>
         <div class="grid gap-3 sm:grid-cols-2">${catsHtml}</div>
       </fieldset>
-      <fieldset class="mb-6">
-        <legend class="font-bold text-slate-700 mb-3">난이도 <span class="font-normal text-sm text-slate-400">(파일 이름에 _상/_중/_하 표시가 없으면 '중'으로 계산돼요)</span></legend>
-        <div class="grid gap-3 grid-cols-3">
-          <label class="flex items-center gap-2 bg-white rounded-xl border border-slate-200 px-3 sm:px-4 py-3 cursor-pointer">
-            <input type="checkbox" name="mock-diff" value="하" class="w-4 h-4 accent-amber-700"><span class="font-bold text-sm sm:text-base" style="color:#15803d">저급</span></label>
-          <label class="flex items-center gap-2 bg-white rounded-xl border border-slate-200 px-3 sm:px-4 py-3 cursor-pointer">
-            <input type="checkbox" name="mock-diff" value="중" class="w-4 h-4 accent-amber-700"><span class="font-bold text-sm sm:text-base" style="color:#a16207">중급</span></label>
-          <label class="flex items-center gap-2 bg-white rounded-xl border border-slate-200 px-3 sm:px-4 py-3 cursor-pointer">
-            <input type="checkbox" name="mock-diff" value="상" class="w-4 h-4 accent-amber-700"><span class="font-bold text-sm sm:text-base" style="color:#dc2626">고급</span></label>
+      <!-- 난이도 + 문제 수 (한 줄) -->
+      <div class="flex flex-wrap items-center gap-x-6 gap-y-3 mb-6">
+        <div class="flex items-center gap-2">
+          <span class="font-bold text-slate-700 text-sm mr-1">난이도</span>
+            <label class="flex items-center gap-1.5 bg-white rounded-lg border border-slate-200 px-2.5 py-1.5 cursor-pointer">
+              <input type="checkbox" name="mock-diff" value="하" class="w-3.5 h-3.5 accent-amber-700"><span class="font-bold text-[13px]" style="color:#15803d">저급</span></label>
+            <label class="flex items-center gap-1.5 bg-white rounded-lg border border-slate-200 px-2.5 py-1.5 cursor-pointer">
+              <input type="checkbox" name="mock-diff" value="중" class="w-3.5 h-3.5 accent-amber-700"><span class="font-bold text-[13px]" style="color:#a16207">중급</span></label>
+            <label class="flex items-center gap-1.5 bg-white rounded-lg border border-slate-200 px-2.5 py-1.5 cursor-pointer">
+              <input type="checkbox" name="mock-diff" value="상" class="w-3.5 h-3.5 accent-amber-700"><span class="font-bold text-[13px]" style="color:#dc2626">고급</span></label>
         </div>
-      </fieldset>
+        <div class="flex items-center gap-2">
+          <span class="font-bold text-slate-700 text-sm mr-1">문제 수</span>
+          <div id="mock-count" class="flex bg-white border border-slate-200 rounded-lg p-0.5">
+            ${[10, 20, 25, 30].map(n => `<button type="button" onclick="setMockCount(${n})" data-n="${n}" class="px-2.5 py-1 rounded-md text-[13px] font-bold ${n === mockCount ? 'text-white' : 'text-slate-500'}" ${n === mockCount ? 'style="background:var(--mock)"' : ''}>${n}</button>`).join('')}
+          </div>
+        </div>
+      </div>
       <fieldset class="mb-6">
         <legend class="font-bold text-slate-700 mb-3">출제 범위</legend>
         <div class="grid gap-3 md:grid-cols-3">${treeHtml}</div>
       </fieldset>
-      <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-        <label class="flex items-center gap-2 text-sm font-bold text-slate-700">문제 수
-          <select id="mock-count" class="p-2 border border-slate-200 rounded-lg bg-white">
-            <option value="10">10문제</option><option value="20" selected>20문제</option><option value="25">25문제</option><option value="30">30문제</option>
-          </select>
-        </label>
-        <button onclick="startMock()" class="sm:ml-auto px-4 py-2 rounded-lg text-white text-sm font-bold whitespace-nowrap" style="background:var(--mock)">문제 뽑기</button>
+      <div class="flex justify-end">
+        <button onclick="startMock()" class="px-4 py-2 rounded-lg text-white text-sm font-bold whitespace-nowrap" style="background:var(--mock)">문제 뽑기</button>
       </div>
     </div>
     <div id="mock-result"></div>
     <div id="print-sheet" class="print-only"></div>`;
 }
 
+window.setMockCount = function (n) {   // 문제 수 버튼
+  mockCount = n;
+  document.querySelectorAll('#mock-count button').forEach(b => {
+    const on = Number(b.dataset.n) === n;
+    b.classList.toggle('text-white', on); b.classList.toggle('text-slate-500', !on);
+    b.style.background = on ? 'var(--mock)' : '';
+  });
+};
 window.toggleBig = function (bi, on) {
   document.querySelectorAll(`input[name="mock-unit"][data-big="${bi}"]`).forEach(cb => cb.checked = on);
   document.querySelectorAll(`input[id^="grp-${bi}-"]`).forEach(cb => { cb.checked = on; cb.indeterminate = false; });
@@ -609,7 +620,7 @@ window.startMock = function () {
   const cats = [...document.querySelectorAll('input[name="mock-cat"]:checked')].map(c => c.value);
   const units = [...document.querySelectorAll('input[name="mock-unit"]:checked')].map(c => c.value);
   const diffs = [...document.querySelectorAll('input[name="mock-diff"]:checked')].map(c => c.value);
-  const want = Number($('mock-count').value);
+  const want = mockCount;
   if (!diffs.length) return showModal('난이도를 하나 이상 골라주세요.');
   if (!cats.length) return showModal('문제풀기와 기출 문제 중 하나 이상 골라주세요.');
   if (!units.length) return showModal('출제 범위를 하나 이상 골라주세요.');
@@ -852,6 +863,32 @@ window.clearInk = function (id) {
   delete ink[id];
 };
 
+/* ================= 이어서 풀기 (이 기기에 저장) =================
+   - 문제풀기·기출: 소단원/중단원별로 마지막에 보던 문제 번호
+   - OX·빈칸: 풀던 순서, 푼 위치, 맞힘·틀림 개수 (다 풀면 지워짐)
+   브라우저를 닫았다가 다시 열어도 이어져요. (기기마다 따로 저장)            */
+const LS_POS = `sj_pos_${SUBJECT}`, LS_QUIZ = `sj_quiz_${SUBJECT}`;
+const quizAll = () => lsGet(LS_QUIZ) || {};
+function saveQuiz(type, st) {
+  if (!st.resumable) return;   // '틀린 문장만 다시'처럼 임시로 푸는 것은 저장하지 않음
+  const all = quizAll(), k = type + '|' + st.scope, n = st.items.length;
+  const done = st.idx + (st.answered !== null ? 1 : 0);
+  if (done <= 0 || done >= n) delete all[k];
+  else all[k] = { sids: st.items.map(x => x.sid), idx: done, right: st.right, wrong: st.wrong.map(x => x.sid), random: st.random };
+  lsSet(LS_QUIZ, all);
+}
+function loadQuiz(type, scope, pool) {
+  const s = quizAll()[type + '|' + scope];
+  if (!s) return null;
+  const bySid = Object.fromEntries(pool.map(x => [x.sid, x]));
+  const items = s.sids.map(id => bySid[id]).filter(Boolean);
+  // 문장 파일이 바뀌어 목록이 달라졌으면 처음부터
+  if (items.length !== s.sids.length || items.length !== pool.length || s.idx <= 0 || s.idx >= items.length) return null;
+  return { items, idx: s.idx, right: s.right, wrong: s.wrong.map(id => bySid[id]).filter(Boolean), random: !!s.random };
+}
+function clearQuiz(type, scope) { const all = quizAll(); delete all[type + '|' + scope]; lsSet(LS_QUIZ, all); }
+const restartLink = (fn) => `<button onclick="${fn}()" class="ml-2 text-xs font-bold text-slate-400 hover:text-slate-600 underline underline-offset-2">처음부터</button>`;
+
 /* ================= OX 퀴즈 =================
    ox.txt (탭으로 구분)  대단원 | 소단원 | 문장 | 정답(O/X) | 해설
    엑셀에서 표를 복사해 메모장에 붙여넣고 ox.txt로 저장하면 돼요.            */
@@ -978,15 +1015,19 @@ window.startOxRange = function () {
 };
 
 window.startOx = function (scope, items) {
+  const resumable = !items && scope !== 'wrong';
+  let resumed = null;
   currentUnit = scope === 'all' ? null : scope === 'wrong' ? '__wrong' : scope;
   if (!items) {
     items = scope === 'wrong' ? oxWrongItems()
       : isGrp(scope) ? OX.filter(x => groupOf_(scope).units.some(u => u.code === x.code))
       : isSel(scope) ? OX.filter(x => scope.slice(4).split(',').includes(x.code))
       : OX.filter(x => scope === 'all' || x.code === scope);
-    if (ox.random) items = shuffle([...items]);
+    if (resumable) resumed = loadQuiz('ox', scope, items);
+    if (!resumed && ox.random) items = shuffle([...items]);
   }
-  ox = { ...ox, scope, items, idx: 0, right: 0, wrong: [], answered: null };
+  ox = { ...ox, scope, items, idx: 0, right: 0, wrong: [], answered: null, resumable };
+  if (resumed) Object.assign(ox, resumed);   // 풀던 곳부터 이어서
   const u = unitByCode[scope];
   setHeader(u ? u.title : scope === 'wrong' ? '틀린 문장 다시 풀기' : isGrp(scope) ? groupOf_(scope).title : isSel(scope) ? '고른 범위 · OX 퀴즈' : 'OX 퀴즈 · 전체', `OX 퀴즈 · ${items.length}문장`);
   renderSidebar(); renderOx(); closeSidebarMobile();
@@ -994,6 +1035,7 @@ window.startOx = function (scope, items) {
 };
 window.setOxSort = function (mode) {
   ox.random = mode === 'random';
+  clearQuiz('ox', ox.scope);
   startOx(ox.scope);
 };
 window.answerOx = function (choice) {
@@ -1006,16 +1048,20 @@ window.answerOx = function (choice) {
     queueOp({ t: 'ox', sid: it.sid, text: it.q, correct: choice === it.ans });
     renderSidebar();
   }
+  saveQuiz('ox', ox);
   renderOx();
 };
 window.nextOx = function () {
   if (ox.answered === null) return;
   ox.idx++; ox.answered = null;
+  saveQuiz('ox', ox);
   renderOx(); $('scroll-area').scrollTo({ top: 0, behavior: 'smooth' });
 };
 window.retryOx = function (onlyWrong) {
-  startOx(ox.scope, onlyWrong ? shuffle([...ox.wrong]) : undefined);
+  if (onlyWrong) return startOx(ox.scope, shuffle([...ox.wrong]));
+  clearQuiz('ox', ox.scope); startOx(ox.scope);
 };
+window.restartOx = function () { clearQuiz('ox', ox.scope); startOx(ox.scope); };
 
 function renderOx() {
   const n = ox.items.length;
@@ -1030,7 +1076,7 @@ function renderOx() {
         <button onclick="setOxSort('seq')" class="px-3 md:px-4 py-1.5 md:py-2 text-xs md:text-sm rounded-lg whitespace-nowrap ${seg(!ox.random, 'var(--accent)')}">순서대로</button>
         <button onclick="setOxSort('random')" class="px-3 md:px-4 py-1.5 md:py-2 text-xs md:text-sm rounded-lg whitespace-nowrap ${seg(ox.random, 'var(--mock)')}">랜덤으로</button>
       </div>
-      <div class="text-sm font-bold tabular-nums pr-2">${Math.min(ox.idx + 1, n)} <span class="text-slate-400 font-normal">/ ${n}</span></div>
+      <div class="text-sm font-bold tabular-nums pr-2">${Math.min(ox.idx + 1, n)} <span class="text-slate-400 font-normal">/ ${n}</span>${ox.resumable && ox.idx > 0 && ox.idx < n ? restartLink('restartOx') : ''}</div>
     </div>
     <div class="h-1.5 bg-slate-200 rounded-full mb-5 overflow-hidden"><div class="h-full rounded-full transition-all" style="width:${ox.idx / n * 100}%;background:var(--accent)"></div></div>`;
 
@@ -1174,21 +1220,25 @@ window.startFillRange = function () {
 };
 
 window.startFill = function (scope, items) {
+  const resumable = !items && scope !== 'wrong';
+  let resumed = null;
   currentUnit = scope === 'all' ? null : scope === 'wrong' ? '__wrong' : scope;
   if (!items) {
     items = scope === 'wrong' ? fillWrongItems()
       : isGrp(scope) ? FILL.filter(x => groupOf_(scope).units.some(u => u.code === x.code))
       : isSel(scope) ? FILL.filter(x => scope.slice(4).split(',').includes(x.code))
       : FILL.filter(x => scope === 'all' || x.code === scope);
-    if (fill.random) items = shuffle([...items]);
+    if (resumable) resumed = loadQuiz('fill', scope, items);
+    if (!resumed && fill.random) items = shuffle([...items]);
   }
-  fill = { ...fill, scope, items, idx: 0, right: 0, wrong: [], answered: null, typed: [] };
+  fill = { ...fill, scope, items, idx: 0, right: 0, wrong: [], answered: null, typed: [], resumable };
+  if (resumed) Object.assign(fill, resumed);   // 풀던 곳부터 이어서
   const u = unitByCode[scope];
   setHeader(u ? u.title : scope === 'wrong' ? '오답 노트 다시 풀기' : isGrp(scope) ? groupOf_(scope).title : isSel(scope) ? '고른 범위 · 빈칸채우기' : '빈칸채우기 · 전체', `빈칸채우기 · ${items.length}문장`);
   renderSidebar(); renderFill(); closeSidebarMobile();
   $('scroll-area').scrollTo({ top: 0 });
 };
-window.setFillSort = function (mode) { fill.random = mode === 'random'; startFill(fill.scope); };
+window.setFillSort = function (mode) { fill.random = mode === 'random'; clearQuiz('fill', fill.scope); startFill(fill.scope); };
 window.focusFillBlank = function (i, total) {   // 빈칸에서 Enter → 다음 빈칸, 마지막이면 채점
   const el = $('fill-input-' + (i + 1));
   if (i + 1 < total && el) el.focus(); else submitFill();
@@ -1207,14 +1257,20 @@ window.submitFill = function () {
     queueOp({ t: 'ox', sid: it.sid, text: '[빈칸] ' + fillPlain(it), correct });
     renderSidebar();
   }
+  saveQuiz('fill', fill);
   renderFill();
 };
 window.nextFill = function () {
   if (fill.answered === null) return;
   fill.idx++; fill.answered = null; fill.typed = [];
+  saveQuiz('fill', fill);
   renderFill(); $('scroll-area').scrollTo({ top: 0, behavior: 'smooth' });
 };
-window.retryFill = function (onlyWrong) { startFill(fill.scope, onlyWrong ? shuffle([...fill.wrong]) : undefined); };
+window.retryFill = function (onlyWrong) {
+  if (onlyWrong) return startFill(fill.scope, shuffle([...fill.wrong]));
+  clearQuiz('fill', fill.scope); startFill(fill.scope);
+};
+window.restartFill = function () { clearQuiz('fill', fill.scope); startFill(fill.scope); };
 
 const fillPlain = it => it.parts.map((p, i) => p + (i < it.answers.length ? `[${it.answers[i][0]}]` : '')).join('');
 function fillFullSentence(it) {   // 결과 화면용: 정답을 채운 완성 문장
@@ -1236,7 +1292,7 @@ function renderFill() {
         <button onclick="setFillSort('seq')" class="px-3 md:px-4 py-1.5 md:py-2 text-xs md:text-sm rounded-lg whitespace-nowrap ${seg(!fill.random, 'var(--accent)')}">순서대로</button>
         <button onclick="setFillSort('random')" class="px-3 md:px-4 py-1.5 md:py-2 text-xs md:text-sm rounded-lg whitespace-nowrap ${seg(fill.random, 'var(--mock)')}">랜덤으로</button>
       </div>
-      <div class="text-sm font-bold tabular-nums pr-2">${Math.min(fill.idx + 1, n)} <span class="text-slate-400 font-normal">/ ${n}</span></div>
+      <div class="text-sm font-bold tabular-nums pr-2">${Math.min(fill.idx + 1, n)} <span class="text-slate-400 font-normal">/ ${n}</span>${fill.resumable && fill.idx > 0 && fill.idx < n ? restartLink('restartFill') : ''}</div>
     </div>
     <div class="h-1.5 bg-slate-200 rounded-full mb-5 overflow-hidden"><div class="h-full rounded-full transition-all" style="width:${fill.idx / n * 100}%;background:var(--accent)"></div></div>`;
 
@@ -1485,6 +1541,7 @@ document.addEventListener('visibilitychange', () => {
    형식: { "practice/book1": { "1-1-1": {"1": null, "2": "상"}, ... }, ... }  (null = 난이도 표시 없음 → 중급)                    */
 async function init() {
   setAccent(currentCat);
+  lastPage = lsGet(LS_POS) || {};   // 지난번에 보던 위치 불러오기
   await Promise.all([loadOx(), loadFill()]);
   try {
     const res = await fetch('manifest.json', { cache: 'no-store' });
